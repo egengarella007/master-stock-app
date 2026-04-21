@@ -82,19 +82,31 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const url = new URL(request.url);
-    const sym = normalizeSymbol(url.searchParams.get("symbol") ?? "");
-    if (!sym) {
-      return NextResponse.json({ error: "symbol query param is required" }, { status: 400 });
+    const body = (await request.json()) as { symbol?: string };
+    if (typeof body.symbol !== "string" || !body.symbol.trim()) {
+      return NextResponse.json({ error: "Missing symbol" }, { status: 400 });
     }
+    const sym = normalizeSymbol(body.symbol);
     if (!isValidSymbol(sym)) {
       return NextResponse.json({ error: "Invalid symbol format" }, { status: 400 });
     }
+
     const supabase = getSupabaseService();
-    const { error } = await supabase.from("watchlist_symbols").delete().eq("symbol", sym);
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    const [w, s, c] = await Promise.all([
+      supabase.from("watchlist_symbols").delete().eq("symbol", sym),
+      supabase.from("stock_data").delete().eq("symbol", sym),
+      supabase.from("chart_metadata").delete().eq("symbol", sym),
+    ]);
+
+    if (w.error) {
+      console.error("[watchlist] delete watchlist_symbols:", w.error.message);
+      return NextResponse.json({ error: w.error.message }, { status: 500 });
     }
+
+    if (s.error) console.error("[watchlist] delete stock_data:", s.error.message);
+    if (c.error) console.error("[watchlist] delete chart_metadata:", c.error.message);
+
+    console.log(`[watchlist] deleted ${sym} from all tables`);
     return NextResponse.json({ ok: true });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Unknown error";

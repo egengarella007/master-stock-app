@@ -39,8 +39,10 @@ export function WatchlistRow({
       e.stopPropagation();
       setRemoving(true);
       try {
-        const res = await fetch(`/api/watchlist?symbol=${encodeURIComponent(item.symbol)}`, {
+        const res = await fetch("/api/watchlist", {
           method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ symbol: item.symbol }),
         });
         if (!res.ok) {
           const body = (await res.json().catch(() => ({}))) as { error?: string };

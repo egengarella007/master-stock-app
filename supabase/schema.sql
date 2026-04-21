@@ -46,3 +46,31 @@ CREATE TABLE chart_metadata (
   added_at TIMESTAMPTZ DEFAULT NOW()
 );
 ALTER TABLE chart_metadata DISABLE ROW LEVEL SECURITY;
+
+-- ---------------------------------------------------------------------------
+-- Cascading FKs (existing DBs: if CREATE TABLE already applied, run only
+-- from "Orphan cleanup" through the last ALTER in the SQL Editor.)
+-- ---------------------------------------------------------------------------
+
+-- Orphan cleanup (safe on empty DB; required before adding FKs if legacy rows exist)
+DELETE FROM stock_data s
+WHERE NOT EXISTS (SELECT 1 FROM watchlist_symbols w WHERE w.symbol = s.symbol);
+
+DELETE FROM chart_metadata c
+WHERE NOT EXISTS (SELECT 1 FROM watchlist_symbols w WHERE w.symbol = c.symbol);
+
+-- Cascading FKs: deleting a watchlist row removes matching stock_data and chart_metadata
+ALTER TABLE stock_data DROP CONSTRAINT IF EXISTS fk_stock_data_symbol;
+ALTER TABLE chart_metadata DROP CONSTRAINT IF EXISTS fk_chart_metadata_symbol;
+
+ALTER TABLE stock_data
+  ADD CONSTRAINT fk_stock_data_symbol
+  FOREIGN KEY (symbol)
+  REFERENCES watchlist_symbols (symbol)
+  ON DELETE CASCADE;
+
+ALTER TABLE chart_metadata
+  ADD CONSTRAINT fk_chart_metadata_symbol
+  FOREIGN KEY (symbol)
+  REFERENCES watchlist_symbols (symbol)
+  ON DELETE CASCADE;

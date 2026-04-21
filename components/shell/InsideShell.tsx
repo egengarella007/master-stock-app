@@ -1,9 +1,6 @@
 "use client";
 
 import { Sidebar } from "@/components/shell/Sidebar";
-import { TabBar } from "@/components/shell/TabBar";
-import { Header } from "@/components/shell/Header";
-import { useMediaQuery } from "@/hooks/useMediaQuery";
 
 const COLORS = {
   bg: "#0e0f1a",
@@ -12,8 +9,6 @@ const COLORS = {
 const FONT = "system-ui, -apple-system, sans-serif";
 
 export function InsideShell({ children }: { children: React.ReactNode }) {
-  const isMobile = useMediaQuery("(max-width: 768px)");
-
   return (
     <div
       style={{
@@ -24,18 +19,15 @@ export function InsideShell({ children }: { children: React.ReactNode }) {
       }}
     >
       <Sidebar />
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-        {!isMobile ? <Header /> : null}
-        <div
-          style={{
-            flex: 1,
-            padding: isMobile ? 16 : 20,
-            paddingBottom: isMobile ? 88 : 24,
-          }}
-        >
-          {children}
-        </div>
-        <TabBar />
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          minWidth: 0,
+        }}
+      >
+        <div style={{ flex: 1, padding: 20 }}>{children}</div>
       </div>
     </div>
   );

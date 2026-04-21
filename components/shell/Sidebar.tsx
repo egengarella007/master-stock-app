@@ -1,7 +1,6 @@
 "use client";
 
 import { Suspense } from "react";
-import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { AddSymbolForm } from "@/components/watchlist/AddSymbolForm";
 import { WatchlistList } from "@/components/watchlist/WatchlistList";
 
@@ -15,9 +14,6 @@ const COLORS = {
 const FONT = "system-ui, -apple-system, sans-serif";
 
 export function Sidebar() {
-  const isMobile = useMediaQuery("(max-width: 768px)");
-  if (isMobile) return null;
-
   return (
     <aside
       style={{

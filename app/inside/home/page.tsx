@@ -1,14 +1,13 @@
-import { Suspense } from "react";
-import { HomeDashboard } from "@/components/home/HomeDashboard";
-
 export default function HomePage() {
   return (
-    <Suspense
-      fallback={
-        <div style={{ color: "#94a3b8", fontFamily: "system-ui, -apple-system, sans-serif" }}>Loading…</div>
-      }
+    <div
+      style={{
+        color: "#94a3b8",
+        fontSize: 14,
+        padding: 32,
+      }}
     >
-      <HomeDashboard />
-    </Suspense>
+      Dashboard coming soon.
+    </div>
   );
 }

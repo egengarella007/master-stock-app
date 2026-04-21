@@ -40,3 +40,11 @@ body {
 .skeleton-pulse {
   animation: pulse 1.2s ease-in-out infinite;
 }
+
+.watchlist-sidebar-scroll {
+  -ms-overflow-style: none;
+}
+
+.watchlist-sidebar-scroll::-webkit-scrollbar {
+  display: none;
+}

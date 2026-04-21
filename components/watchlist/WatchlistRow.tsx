@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useRef, useState } from "react";
-import type { WatchlistMergedRow } from "@/hooks/useWatchlist";
+import type { WatchlistRecord } from "@/lib/types";
 import { formatUsd } from "@/lib/formatters";
 
 const COLORS = {
@@ -16,14 +16,14 @@ const COLORS = {
 const FONT = "system-ui, -apple-system, sans-serif";
 const LONG_PRESS_MS = 550;
 
-export function WatchlistRow({ item, selected }: { item: WatchlistMergedRow; selected: boolean }) {
+export function WatchlistRow({ item, selected }: { item: WatchlistRecord; selected: boolean }) {
   const router = useRouter();
   const [showRemove, setShowRemove] = useState(false);
   const [removing, setRemoving] = useState(false);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const cp = item.stock?.change_percent ?? null;
-  const priceStr = formatUsd(item.stock?.price ?? null);
+  const cp = item.change_percent ?? null;
+  const priceStr = formatUsd(item.price ?? null);
 
   const clearLongPress = useCallback(() => {
     if (longPressTimer.current !== null) {

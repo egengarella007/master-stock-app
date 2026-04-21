@@ -1,7 +1,7 @@
 """
 Background chart capture service.
 
-Reads watchlist_symbols from Supabase, ensures rows exist in chart_metadata,
+Reads watchlist from Supabase, ensures rows exist in chart_metadata,
 prioritizes never-captured symbols then oldest captures beyond a 10 minute TTL,
 captures Finviz charts for D/W/M using Playwright (parallel threads),
 uploads PNGs to Supabase Storage bucket `charts`, and updates chart_metadata.
@@ -60,7 +60,7 @@ def parse_ts(value: Optional[str]) -> Optional[datetime]:
 
 
 def supabase_get_watchlist() -> List[str]:
-    url = f"{SUPABASE_URL}/rest/v1/watchlist_symbols?select=symbol&order=added_at.desc"
+    url = f"{SUPABASE_URL}/rest/v1/watchlist?select=symbol&order=added_at.desc"
     r = requests.get(url, headers=REST_HEADERS, timeout=60)
     r.raise_for_status()
     return [row["symbol"] for row in r.json() if row.get("symbol")]

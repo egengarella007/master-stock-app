@@ -6,8 +6,10 @@ export type NewsItem = {
   date?: string;
 };
 
-export type StockDataRow = {
+/** One row from public.watchlist (symbol + Finviz fields). */
+export type WatchlistRecord = {
   symbol: string;
+  added_at: string | null;
   price: number | null;
   change_percent: number | null;
   change: string | null;
@@ -34,20 +36,4 @@ export type StockDataRow = {
   analyst_price_target: string | null;
   news: NewsItem[] | null;
   updated_at: string | null;
-};
-
-export type WatchlistSymbolRow = {
-  symbol: string;
-  added_at: string;
-};
-
-export type MarketBreadthResponse = {
-  advancing: number;
-  declining: number;
-  unchanged: number;
-  newHighs: number;
-  newLows: number;
-  pctAboveSma50: number | null;
-  pctAboveSma200: number | null;
-  sampleSize: number;
 };

@@ -11,11 +11,13 @@ Runs forever.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote
 
@@ -23,22 +25,30 @@ import requests
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
 
-load_dotenv()
+ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(ROOT / ".env.local")
+INDEX_TTL_SECONDS = 60
 
+SUPABASE_URL = (
+    os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
+    or os.environ.get("SUPABASE_URL")
+    or ""
+).rstrip("/")
 
-def supabase_base_url() -> str:
-    base = os.environ.get("SUPABASE_URL") or os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
-    if not base:
-        raise RuntimeError("Set SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL")
-    return base.rstrip("/")
+SUPABASE_KEY = (
+    os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+    or os.environ.get("SUPABASE_ANON_KEY")
+    or ""
+)
 
-
-SUPABASE_URL = supabase_base_url()
-SERVICE_ROLE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+if not SUPABASE_URL:
+    raise RuntimeError("Set NEXT_PUBLIC_SUPABASE_URL in .env.local")
+if not SUPABASE_KEY:
+    raise RuntimeError("Set SUPABASE_SERVICE_ROLE_KEY in .env.local")
 
 REST_HEADERS = {
-    "apikey": SERVICE_ROLE_KEY,
-    "Authorization": f"Bearer {SERVICE_ROLE_KEY}",
+    "apikey": SUPABASE_KEY,
+    "Authorization": f"Bearer {SUPABASE_KEY}",
     "Content-Type": "application/json",
     "Prefer": "return=minimal",
 }
@@ -94,14 +104,14 @@ def supabase_patch_chart_metadata(symbol: str, patch: Dict[str, Any]) -> None:
 
 def storage_object_name(symbol: str, period: str) -> str:
     safe = symbol.replace("^", "_CARET_")
-    return f"{safe}_{period.upper()}.png"
+    return f"stocks/{safe}_{period.upper()}.png"
 
 
 def storage_upload(object_name: str, png_bytes: bytes) -> None:
     upload_url = f"{SUPABASE_URL}/storage/v1/object/charts/{object_name}"
     headers = {
-        "apikey": SERVICE_ROLE_KEY,
-        "Authorization": f"Bearer {SERVICE_ROLE_KEY}",
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
         "Content-Type": "image/png",
         "x-upsert": "true",
     }
@@ -110,34 +120,83 @@ def storage_upload(object_name: str, png_bytes: bytes) -> None:
         raise RuntimeError(f"storage upload failed: {r.status_code} {r.text}")
 
 
+def upload_to_supabase_storage(local_path: str, object_name: str) -> None:
+    png_bytes = Path(local_path).read_bytes()
+    storage_upload(object_name, png_bytes)
+
+
 def capture_finviz_chart_png(symbol: str, period: str) -> bytes:
     p = period.lower()
     if p not in ("d", "w", "m"):
         raise ValueError("period must be d, w, or m")
 
-    chart_url = f"https://finviz.com/chart.ashx?t={symbol}&ty=c&ta=1&p={p}&s=l"
+    url = f"https://finviz.com/quote.ashx?t={symbol}&p={p}"
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True)
-        context = browser.new_context(viewport={"width": 1400, "height": 900})
+        context = browser.new_context(
+            viewport={"width": 1920, "height": 1080},
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            ),
+        )
         context.add_cookies(
             [
                 {
-                    "name": "screenerchartisdark",
-                    "value": "true",
+                    "name": "theme",
+                    "value": "dark",
                     "domain": ".finviz.com",
                     "path": "/",
                 }
             ]
         )
         page = context.new_page()
-        page.goto(chart_url, wait_until="networkidle", timeout=120_000)
-        page.wait_for_timeout(1500)
-        locator = page.locator('img[src*="chart.ashx"]').first
-        png = locator.screenshot(type="png")
-        context.close()
-        browser.close()
-        return png
+        page.set_default_timeout(30_000)
+
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+
+            try:
+                page.wait_for_selector(".canvas.outline-none", timeout=15_000)
+            except Exception:
+                pass
+
+            page.wait_for_timeout(4000)
+
+            data_url = page.evaluate(
+                """() => {
+                const nodes = Array.from(
+                    document.querySelectorAll('.canvas.outline-none')
+                );
+                for (const container of nodes) {
+                    const canvases = container.querySelectorAll('canvas');
+                    if (!canvases.length) continue;
+                    const scale = 3;
+                    const w = canvases[0].width;
+                    const h = canvases[0].height;
+                    const ec = document.createElement('canvas');
+                    ec.width = w * scale;
+                    ec.height = h * scale;
+                    const ctx = ec.getContext('2d');
+                    ctx.scale(scale, scale);
+                    ctx.fillStyle = '#1b1b1b';
+                    ctx.fillRect(0, 0, w, h);
+                    canvases.forEach(c => ctx.drawImage(c, 0, 0));
+                    return ec.toDataURL('image/png', 1.0);
+                }
+                return null;
+            }"""
+            )
+
+            if not data_url:
+                raise RuntimeError(f"no canvas found for {symbol} {period}")
+
+            return base64.b64decode(data_url.split(",", 1)[1])
+        finally:
+            context.close()
+            browser.close()
 
 
 def capture_period_worker(args: Tuple[str, str]) -> Tuple[str, bytes]:
@@ -217,36 +276,133 @@ def process_symbol(symbol: str) -> None:
     supabase_patch_chart_metadata(symbol, patch)
 
 
-def capture_index_files() -> None:
-    mapping = [
-        ("DIA", "INDEX_DJ_D.png"),
-        ("QQQ", "INDEX_NDX_D.png"),
-        ("SPY", "INDEX_SPX_D.png"),
-    ]
-    for sym, filename in mapping:
-        png = capture_finviz_chart_png(sym, "d")
-        storage_upload(filename, png)
+def capture_index_charts() -> None:
+    print("[chart_watcher] 📸 capturing index charts...")
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        context = browser.new_context(
+            viewport={"width": 1920, "height": 1080},
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            ),
+        )
+        context.add_cookies(
+            [
+                {
+                    "name": "theme",
+                    "value": "dark",
+                    "domain": ".finviz.com",
+                    "path": "/",
+                }
+            ]
+        )
+        page = context.new_page()
+
+        try:
+            page.goto("https://finviz.com/", wait_until="domcontentloaded", timeout=30_000)
+            try:
+                page.wait_for_selector(
+                    "xpath=//*[@id='chart-layout-c-0']/div/div[2]/div/div/canvas",
+                    timeout=15_000,
+                )
+            except Exception:
+                pass
+            page.wait_for_timeout(4000)
+
+            charts = [
+                ("dow", "//*[@id='chart-layout-c-0']/div/div[2]/div/div/canvas"),
+                ("nasdaq", "//*[@id='chart-layout-c-1']/div/div[2]/div/div/canvas"),
+                ("sp500", "//*[@id='chart-layout-c-2']/div/div[2]/div/div/canvas"),
+            ]
+
+            for name, xpath in charts:
+                try:
+                    _ = page.locator(f"xpath={xpath}").first
+
+                    data_url = page.evaluate(
+                        """(xp) => {
+                        const el = document.evaluate(
+                            xp,
+                            document,
+                            null,
+                            XPathResult.FIRST_ORDERED_NODE_TYPE,
+                            null
+                        ).singleNodeValue;
+                        if (!el) return null;
+
+                        const container = el.closest('.canvas-wrap') || el.parentElement;
+                        const canvases = container
+                            ? container.querySelectorAll('canvas')
+                            : [el];
+
+                        const scale = 2;
+                        const w = el.width;
+                        const h = el.height;
+                        const ec = document.createElement('canvas');
+                        ec.width = w * scale;
+                        ec.height = h * scale;
+                        const ctx = ec.getContext('2d');
+                        ctx.scale(scale, scale);
+                        ctx.fillStyle = '#1b1b1b';
+                        ctx.fillRect(0, 0, w, h);
+                        canvases.forEach((c) => ctx.drawImage(c, 0, 0));
+                        return ec.toDataURL('image/png', 1.0);
+                    }""",
+                        xpath,
+                    )
+
+                    if data_url and data_url.startswith("data:image/png"):
+                        img_bytes = base64.b64decode(data_url.split(",", 1)[1])
+
+                        local_path = ROOT / "public" / "charts" / "index" / f"{name}.png"
+                        local_path.parent.mkdir(parents=True, exist_ok=True)
+                        local_path.write_bytes(img_bytes)
+
+                        upload_to_supabase_storage(str(local_path), f"index/{name}.png")
+                        print(f"[chart_watcher] ✅ index {name} captured and uploaded")
+                    else:
+                        print(f"[chart_watcher] ⚠️ no canvas data for {name}")
+                except Exception as e:
+                    print(f"[chart_watcher] ❌ index {name}: {e}")
+        finally:
+            browser.close()
 
 
 def main() -> None:
-    last_index = 0.0
+    print("[chart_watcher] 🚀 starting chart watcher", flush=True)
+    print(f"[chart_watcher] Supabase: {SUPABASE_URL}", flush=True)
+    print(f"[chart_watcher] Index capture every {INDEX_TTL_SECONDS}s", flush=True)
+
+    last_index_capture = 0.0
     while True:
         try:
             watchlist = supabase_get_watchlist()
+            print(f"[chart_watcher] 📋 watchlist: {watchlist}", flush=True)
             meta_by_sym = supabase_get_chart_metadata()
             for sym in watchlist:
                 if sym not in meta_by_sym:
+                    print(f"[chart_watcher] 🆕 adding {sym} to chart_metadata", flush=True)
                     supabase_upsert_chart_metadata_row(sym)
             meta_by_sym = supabase_get_chart_metadata()
 
             sym = pick_symbol(watchlist, meta_by_sym)
             if sym:
+                print(f"[chart_watcher] 📸 capturing {sym}...", flush=True)
                 process_symbol(sym)
+                print(f"[chart_watcher] ✅ {sym} done", flush=True)
+            else:
+                print("[chart_watcher] ✅ all charts fresh", flush=True)
 
             now = time.time()
-            if now - last_index > 60 * 30:
-                capture_index_files()
-                last_index = now
+            if now - last_index_capture >= INDEX_TTL_SECONDS:
+                try:
+                    capture_index_charts()
+                    last_index_capture = now
+                except Exception as e:
+                    print(f"[chart_watcher] ❌ index capture failed: {e}")
         except Exception as e:
             print(f"[chart_watcher] error: {e}", flush=True)
 

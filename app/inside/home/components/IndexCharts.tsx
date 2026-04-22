@@ -35,9 +35,9 @@ export function IndexCharts() {
   );
 
   const cards: Array<{ label: string; keyName: string }> = [
-    { label: "DOW", keyName: "dow" },
     { label: "NASDAQ", keyName: "nasdaq" },
     { label: "S&P 500", keyName: "sp500" },
+    { label: "DOW", keyName: "dow" },
   ];
 
   if (!STORAGE_URL) {

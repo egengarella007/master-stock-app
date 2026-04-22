@@ -184,9 +184,9 @@ export function MarketIndexes() {
   const STORAGE_URL = mounted ? (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "") : "";
 
   const charts: Array<{ file: string; alt: string }> = [
-    { file: "dow", alt: "Dow Jones index chart" },
     { file: "nasdaq", alt: "NASDAQ index chart" },
     { file: "sp500", alt: "S&P 500 index chart" },
+    { file: "dow", alt: "Dow Jones index chart" },
   ];
 
   const adv = breadth?.advancing;

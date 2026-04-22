@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
 import requests
 from dotenv import load_dotenv
@@ -27,7 +28,6 @@ from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env.local")
-INDEX_TTL_SECONDS = 60
 
 SUPABASE_URL = (
     os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
@@ -52,6 +52,16 @@ REST_HEADERS = {
     "Content-Type": "application/json",
     "Prefer": "return=minimal",
 }
+ET = ZoneInfo("America/New_York")
+
+
+def nyse_is_open() -> bool:
+    """True only during NYSE regular session Mon-Fri 9:30-16:00 ET."""
+    now = datetime.now(ET)
+    if now.weekday() >= 5:  # Saturday=5, Sunday=6
+        return False
+    mins = now.hour * 60 + now.minute
+    return (9 * 60 + 30) <= mins < (16 * 60)
 
 
 def iso_now() -> str:
@@ -374,7 +384,7 @@ def capture_index_charts() -> None:
 def main() -> None:
     print("[chart_watcher] 🚀 starting chart watcher", flush=True)
     print(f"[chart_watcher] Supabase: {SUPABASE_URL}", flush=True)
-    print(f"[chart_watcher] Index capture every {INDEX_TTL_SECONDS}s", flush=True)
+    print("[chart_watcher] Index capture enabled during NYSE hours", flush=True)
 
     last_index_capture = 0.0
     while True:
@@ -397,12 +407,18 @@ def main() -> None:
                 print("[chart_watcher] ✅ all charts fresh", flush=True)
 
             now = time.time()
-            if now - last_index_capture >= INDEX_TTL_SECONDS:
-                try:
-                    capture_index_charts()
-                    last_index_capture = now
-                except Exception as e:
-                    print(f"[chart_watcher] ❌ index capture failed: {e}")
+            if nyse_is_open():
+                if now - last_index_capture >= 60:
+                    try:
+                        capture_index_charts()
+                        last_index_capture = now
+                        print("[chart_watcher] ✅ index charts updated")
+                    except Exception as e:
+                        print(f"[chart_watcher] ❌ index capture failed: {e}")
+            else:
+                # Market closed - skip index capture entirely
+                # Reset so it captures immediately when market opens
+                last_index_capture = 0.0
         except Exception as e:
             print(f"[chart_watcher] error: {e}", flush=True)
 

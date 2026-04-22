@@ -42,8 +42,9 @@ HEADERS = {
 }
 
 FETCH_INTERVAL = 5
-# Seconds between checks when NYSE regular session is closed.
-CLOSED_POLL_INTERVAL = 60
+# Seconds between DB checks when NYSE is closed and there are no pending new rows
+# (so a ticker added from the UI is picked up quickly).
+CLOSED_POLL_INTERVAL = 15
 
 NYSE_TZ = ZoneInfo("America/New_York")
 # Regular session only (Mon–Fri 09:30–16:00 ET). Does not model exchange holidays.
@@ -81,7 +82,7 @@ def _safe_numeric(v: object) -> object | None:
     return v
 
 
-def get_next_symbol() -> str | None:
+def get_next_symbol(*, pending_only: bool = False) -> str | None:
     """
     Before each Finviz pull, pick one symbol from `watchlist`:
 
@@ -89,8 +90,11 @@ def get_next_symbol() -> str | None:
        Take the **most recently added** (`added_at` DESC) so a brand-new ticker
        jumps ahead of older symbols that were never synced.
 
-    2. **Otherwise** — every row has been fetched at least once.
-       Take the **stalest** row: smallest `updated_at` (longest time since last update).
+    2. **Otherwise** (skipped when ``pending_only=True``) — every row has been fetched
+       at least once. Take the **stalest** row: smallest `updated_at`.
+
+    When NYSE is closed, callers pass ``pending_only=True`` so we only fill new rows
+    and do not refresh stale quotes.
     """
     if not SUPABASE_URL or not SUPABASE_KEY:
         return None
@@ -111,6 +115,9 @@ def get_next_symbol() -> str | None:
             symbol = str(rows[0]["symbol"]).strip().upper()
             print(f"[updater] 🆕 new / pending first fetch: {symbol} (added {rows[0].get('added_at', '?')})")
             return symbol
+
+        if pending_only:
+            return None
 
         # Queue 2: rows already synced at least once — smallest `updated_at`
         # in Supabase = longest time since that row was last written (stalest).
@@ -426,24 +433,29 @@ def main() -> None:
     print("[updater] 🚀 starting stock data updater")
     print(f"[updater] checking for new/stale stocks every {FETCH_INTERVAL}s")
     if _ignore_market_hours():
-        print("[updater] ⚙️ UPDATER_IGNORE_MARKET_HOURS set — will scrape outside NYSE hours")
+        print("[updater] ⚙️ UPDATER_IGNORE_MARKET_HOURS set — full refresh any time")
     else:
         print(
-            "[updater] ⏸️ scrapes only during NYSE regular session "
-            "(Mon–Fri 09:30–16:00 America/New_York; holidays not modeled)"
+            "[updater] ⏸️ NYSE closed: only new watchlist rows (`updated_at` null) are scraped; "
+            "regular session (Mon–Fri 09:30–16:00 ET): full stale refresh. Holidays not modeled."
         )
 
     while True:
-        if not _ignore_market_hours() and not nyse_regular_session_open():
-            et = datetime.now(timezone.utc).astimezone(NYSE_TZ)
-            print(
-                f"[updater] 🌙 NYSE closed (now {et.strftime('%a %Y-%m-%d %H:%M %Z')}) "
-                f"— sleeping {CLOSED_POLL_INTERVAL}s"
-            )
-            time.sleep(CLOSED_POLL_INTERVAL)
-            continue
+        ignore_hours = _ignore_market_hours()
+        market_open = ignore_hours or nyse_regular_session_open()
 
-        symbol = get_next_symbol()
+        if market_open:
+            symbol = get_next_symbol(pending_only=False)
+        else:
+            symbol = get_next_symbol(pending_only=True)
+            if not symbol:
+                et = datetime.now(timezone.utc).astimezone(NYSE_TZ)
+                print(
+                    f"[updater] 🌙 NYSE closed (now {et.strftime('%a %Y-%m-%d %H:%M %Z')}), "
+                    f"no pending new symbols — sleeping {CLOSED_POLL_INTERVAL}s"
+                )
+                time.sleep(CLOSED_POLL_INTERVAL)
+                continue
 
         if not symbol:
             print("[updater] ⚠️ no symbols found, retrying in 30s")

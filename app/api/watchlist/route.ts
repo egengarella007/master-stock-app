@@ -26,6 +26,22 @@ function notifyUpdaterWake(): void {
     .finally(() => clearTimeout(t));
 }
 
+/** If `chart_watcher.py` wake server is configured, skip its idle wait. */
+function notifyChartWatcherWake(): void {
+  const url = process.env.CHART_WATCHER_WAKE_URL?.trim();
+  const secret = process.env.CHART_WATCHER_WAKE_SECRET?.trim();
+  if (!url || !secret) return;
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), 2500);
+  void fetch(url, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${secret}` },
+    signal: ac.signal,
+  })
+    .catch(() => {})
+    .finally(() => clearTimeout(t));
+}
+
 export async function GET() {
   try {
     const supabase = getSupabaseService();
@@ -63,6 +79,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
     notifyUpdaterWake();
+    notifyChartWatcherWake();
     return NextResponse.json({ ok: true, symbol: sym });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Unknown error";
@@ -87,6 +104,27 @@ export async function DELETE(request: NextRequest) {
     if (error) {
       console.error("[watchlist] delete watchlist:", error.message);
       return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    // Delete chart images from storage (stocks/{SYMBOL}_{PERIOD}.png).
+    const periods = ["D", "W", "M"];
+    for (const period of periods) {
+      const { error: storageErr } = await supabase.storage
+        .from("charts")
+        .remove([`stocks/${sym}_${period}.png`]);
+      if (storageErr) {
+        console.error(`[watchlist] delete chart file ${sym}_${period}:`, storageErr.message);
+        return NextResponse.json({ error: storageErr.message }, { status: 500 });
+      }
+    }
+
+    const { error: metadataErr } = await supabase
+      .from("chart_metadata")
+      .delete()
+      .eq("symbol", sym);
+    if (metadataErr) {
+      console.error(`[watchlist] delete chart_metadata ${sym}:`, metadataErr.message);
+      return NextResponse.json({ error: metadataErr.message }, { status: 500 });
     }
 
     console.log(`[watchlist] deleted ${sym}`);

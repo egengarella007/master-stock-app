@@ -14,9 +14,11 @@ from __future__ import annotations
 import base64
 import json
 import os
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote
@@ -28,6 +30,41 @@ from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env.local")
+
+_wake_event = threading.Event()
+WAKE_PORT = int(os.environ.get("CHART_WATCHER_WAKE_PORT", "9091"))
+WAKE_SECRET = os.environ.get("CHART_WATCHER_WAKE_SECRET", "")
+
+
+def start_wake_server() -> None:
+    if not WAKE_SECRET:
+        print("[chart_watcher] ⚠️ no wake secret set, wake server disabled", flush=True)
+        return
+
+    class WakeHandler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            if self.path != "/wake":
+                self.send_error(404)
+                return
+            auth = self.headers.get("Authorization", "")
+            if auth != f"Bearer {WAKE_SECRET}":
+                self.send_error(401)
+                return
+            _wake_event.set()
+            self.send_response(204)
+            self.end_headers()
+            print("[chart_watcher] ⚡ wake signal received", flush=True)
+
+        def log_message(self, *args: object) -> None:
+            pass
+
+    def serve() -> None:
+        server = ThreadingHTTPServer(("127.0.0.1", WAKE_PORT), WakeHandler)
+        server.serve_forever()
+
+    threading.Thread(target=serve, daemon=True, name="wake-server").start()
+    print(f"[chart_watcher] ⚡ wake server on port {WAKE_PORT}", flush=True)
+
 
 SUPABASE_URL = (
     os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
@@ -238,7 +275,7 @@ def pick_symbol(watchlist: List[str], meta_by_sym: Dict[str, Dict[str, Optional[
         return None
 
     now = datetime.now(timezone.utc)
-    ttl = 10 * 60
+    ttl = 30 * 60
 
     never: List[str] = []
     stale: List[Tuple[str, datetime]] = []
@@ -382,47 +419,63 @@ def capture_index_charts() -> None:
 
 
 def main() -> None:
+    start_wake_server()
     print("[chart_watcher] 🚀 starting chart watcher", flush=True)
     print(f"[chart_watcher] Supabase: {SUPABASE_URL}", flush=True)
-    print("[chart_watcher] Index capture enabled during NYSE hours", flush=True)
+    print(
+        "[chart_watcher] 📈 captures run during NYSE hours only (Mon-Fri 9:30-16:00 ET)",
+        flush=True,
+    )
 
     last_index_capture = 0.0
     while True:
-        try:
-            watchlist = supabase_get_watchlist()
-            print(f"[chart_watcher] 📋 watchlist: {watchlist}", flush=True)
-            meta_by_sym = supabase_get_chart_metadata()
-            for sym in watchlist:
-                if sym not in meta_by_sym:
-                    print(f"[chart_watcher] 🆕 adding {sym} to chart_metadata", flush=True)
-                    supabase_upsert_chart_metadata_row(sym)
-            meta_by_sym = supabase_get_chart_metadata()
+        # Stock charts (and index charts) — only during market hours
+        if nyse_is_open():
+            try:
+                watchlist = supabase_get_watchlist()
+                print(f"[chart_watcher] 📋 watchlist: {watchlist}", flush=True)
+                meta_by_sym = supabase_get_chart_metadata()
 
-            sym = pick_symbol(watchlist, meta_by_sym)
-            if sym:
-                print(f"[chart_watcher] 📸 capturing {sym}...", flush=True)
-                process_symbol(sym)
-                print(f"[chart_watcher] ✅ {sym} done", flush=True)
-            else:
-                print("[chart_watcher] ✅ all charts fresh", flush=True)
+                for sym in watchlist:
+                    if sym not in meta_by_sym:
+                        print(f"[chart_watcher] 🆕 adding {sym} to chart_metadata", flush=True)
+                        supabase_upsert_chart_metadata_row(sym)
 
-            now = time.time()
-            if nyse_is_open():
+                meta_by_sym = supabase_get_chart_metadata()
+                sym = pick_symbol(watchlist, meta_by_sym)
+
+                if sym:
+                    print(f"[chart_watcher] 📸 capturing {sym}...", flush=True)
+                    process_symbol(sym)
+                    print(f"[chart_watcher] ✅ {sym} done", flush=True)
+                else:
+                    print("[chart_watcher] ✅ all charts fresh", flush=True)
+
+                now = time.time()
                 if now - last_index_capture >= 60:
                     try:
                         capture_index_charts()
                         last_index_capture = now
-                        print("[chart_watcher] ✅ index charts updated")
+                        print("[chart_watcher] ✅ index charts updated", flush=True)
                     except Exception as e:
-                        print(f"[chart_watcher] ❌ index capture failed: {e}")
-            else:
-                # Market closed - skip index capture entirely
-                # Reset so it captures immediately when market opens
-                last_index_capture = 0.0
-        except Exception as e:
-            print(f"[chart_watcher] error: {e}", flush=True)
+                        print(f"[chart_watcher] ❌ index capture failed: {e}", flush=True)
 
-        time.sleep(2)
+            except Exception as e:
+                print(f"[chart_watcher] error: {e}", flush=True)
+
+            # Wait up to 5 seconds OR wake immediately if signal received
+            _wake_event.wait(timeout=5)
+            _wake_event.clear()
+        else:
+            last_index_capture = 0.0
+            et = datetime.now(ET)
+            print(
+                f"[chart_watcher] 🌙 NYSE closed "
+                f"({et.strftime('%a %H:%M %Z')}) — sleeping",
+                flush=True,
+            )
+            time.sleep(60)
+            continue
 
 
 if __name__ == "__main__":

@@ -75,10 +75,9 @@ export function MarketSidebar() {
                   marginLeft: "auto",
                   textAlign: "right",
                   color: muted,
-                  fontSize: 10,
-                  lineHeight: 1.25,
-                  minWidth: 0,
-                  wordBreak: "break-word",
+                  fontSize: 11,
+                  lineHeight: 1.2,
+                  whiteSpace: "nowrap",
                 }}
               >
                 {clock.line}

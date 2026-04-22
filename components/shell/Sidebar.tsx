@@ -13,11 +13,12 @@ const COLORS = {
 };
 
 const FONT = "system-ui, -apple-system, sans-serif";
-/** Total rail width when expanded (list + vertical collapse handle). */
-const EXPANDED_W = 200;
-/** Narrow strip for ▶ / ◀, aligned with collapsed rail width. */
-const HANDLE_W = 40;
-const COLLAPSED_W = HANDLE_W;
+/** Total rail width when expanded (watchlist column + thin collapse strip). */
+const EXPANDED_W = 252;
+/** Collapse control when expanded — kept narrow; chevron stays readable. */
+const HANDLE_W = 18;
+/** Collapsed rail: slightly wider than handle for tap target. */
+const COLLAPSED_W = 24;
 
 export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
@@ -56,7 +57,7 @@ export function Sidebar() {
             cursor: "pointer",
             display: "grid",
             placeItems: "center",
-            fontSize: 16,
+            fontSize: 12,
             padding: 0,
           }}
         >
@@ -118,7 +119,7 @@ export function Sidebar() {
               cursor: "pointer",
               display: "grid",
               placeItems: "center",
-              fontSize: 16,
+              fontSize: 12,
               padding: 0,
             }}
           >

@@ -9,7 +9,10 @@ import { formatUsd } from "@/lib/formatters";
 const COLORS = {
   text: "#f8fafc",
   green: "#34d399",
-  red: "#f87171",
+  /** Negative % change — soft violet instead of red. */
+  down: "#c084fc",
+  /** Swipe remove hint — slightly brighter violet. */
+  downStrong: "#d8b4fe",
   muted: "#64748b",
 };
 
@@ -156,8 +159,6 @@ export function WatchlistRow({ item, selected }: { item: WatchlistRecord; select
   }, []);
 
   const rowBg = selected ? "rgba(168,85,247,0.06)" : "rgba(18,19,31,0.98)";
-  const peelBg = selected ? "rgba(168,85,247,0.14)" : "rgba(22,24,38,0.98)";
-  const peelBorder = selected ? "rgba(168,85,247,0.4)" : "rgba(148,163,184,0.22)";
 
   return (
     <div
@@ -180,7 +181,7 @@ export function WatchlistRow({ item, selected }: { item: WatchlistRecord; select
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          background: "linear-gradient(90deg, transparent, rgba(248,113,113,0.22))",
+          background: "linear-gradient(90deg, transparent, rgba(168,85,247,0.22))",
           pointerEvents: "none",
           userSelect: "none",
         }}
@@ -189,7 +190,7 @@ export function WatchlistRow({ item, selected }: { item: WatchlistRecord; select
           style={{
             fontSize: 11,
             fontWeight: 800,
-            color: COLORS.red,
+            color: COLORS.downStrong,
             letterSpacing: "0.06em",
             textTransform: "uppercase",
             opacity: removeHintOpacity,
@@ -258,8 +259,8 @@ export function WatchlistRow({ item, selected }: { item: WatchlistRecord; select
             margin: "4px 4px 4px 0",
             padding: "3px 8px",
             borderRadius: 6,
-            border: `1px solid ${peelBorder}`,
-            background: peelBg,
+            border: "none",
+            background: "transparent",
             display: "flex",
             flexDirection: "column",
             alignItems: "flex-end",
@@ -286,7 +287,7 @@ export function WatchlistRow({ item, selected }: { item: WatchlistRecord; select
             style={{
               fontSize: 11,
               fontWeight: 500,
-              color: cp == null ? COLORS.muted : cp >= 0 ? COLORS.green : COLORS.red,
+              color: cp == null ? COLORS.muted : cp >= 0 ? COLORS.green : COLORS.down,
               fontVariantNumeric: "tabular-nums",
             }}
           >

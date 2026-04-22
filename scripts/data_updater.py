@@ -44,6 +44,8 @@ HEADERS = {
 }
 
 FETCH_INTERVAL = 5
+last_breadth_fetch = 0.0
+BREADTH_INTERVAL = 300  # 5 minutes
 # Seconds between DB checks when NYSE is closed and there are no pending new rows
 # (so a ticker added from the UI is picked up quickly).
 CLOSED_POLL_INTERVAL = 15
@@ -500,7 +502,70 @@ def print_data(data: dict) -> None:
         print(f"  Price target:  {data.get('analyst_price_target')}")
 
 
+def fetch_and_save_breadth() -> None:
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return
+    try:
+        req = urllib.request.Request("https://finviz.com/", headers=HEADERS)
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            html = resp.read().decode("utf-8", errors="ignore")
+
+        adv = re.search(r"Advancing.*?(\d[\d,]+)", html, re.DOTALL)
+        dec = re.search(r"Declining.*?(\d[\d,]+)", html, re.DOTALL)
+        highs = re.search(r"New High.*?(\d[\d,]+)", html, re.DOTALL)
+        lows = re.search(r"New Low.*?(\d[\d,]+)", html, re.DOTALL)
+        sma50 = re.search(r"Above SMA50.*?([\d.]+)%", html, re.DOTALL)
+        sma200 = re.search(r"Above SMA200.*?([\d.]+)%", html, re.DOTALL)
+
+        def parse_int(m: re.Match[str] | None) -> int | None:
+            if not m:
+                return None
+            return int(m.group(1).replace(",", ""))
+
+        def parse_float_pct(m: re.Match[str] | None) -> float | None:
+            if not m:
+                return None
+            try:
+                return float(m.group(1))
+            except ValueError:
+                return None
+
+        payload = {
+            "id": 1,
+            "advancing": parse_int(adv),
+            "declining": parse_int(dec),
+            "new_highs": parse_int(highs),
+            "new_lows": parse_int(lows),
+            "above_sma50_pct": parse_float_pct(sma50),
+            "above_sma200_pct": parse_float_pct(sma200),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        body = json.dumps(payload).encode("utf-8")
+        req2 = urllib.request.Request(
+            f"{SUPABASE_URL}/rest/v1/market_breadth?on_conflict=id",
+            data=body,
+            headers={
+                "apikey": SUPABASE_KEY,
+                "Authorization": f"Bearer {SUPABASE_KEY}",
+                "Content-Type": "application/json",
+                "Prefer": "resolution=merge-duplicates",
+            },
+            method="POST",
+        )
+        urllib.request.urlopen(req2, timeout=10)
+        print(
+            f"[updater] ✅ breadth saved: adv={payload['advancing']} "
+            f"dec={payload['declining']} highs={payload['new_highs']} lows={payload['new_lows']}",
+            flush=True,
+        )
+    except Exception as e:
+        print(f"[updater] ❌ breadth fetch failed: {e}", flush=True)
+
+
 def main() -> None:
+    global last_breadth_fetch
+
     print("[updater] 🚀 starting stock data updater")
     print(f"[updater] checking for new/stale stocks every {FETCH_INTERVAL}s")
     start_wake_server_if_configured()
@@ -513,6 +578,11 @@ def main() -> None:
         )
 
     while True:
+        now_ts = time.time()
+        if now_ts - last_breadth_fetch >= BREADTH_INTERVAL:
+            fetch_and_save_breadth()
+            last_breadth_fetch = now_ts
+
         ignore_hours = _ignore_market_hours()
         market_open = ignore_hours or nyse_regular_session_open()
 

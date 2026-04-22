@@ -468,14 +468,47 @@ def main() -> None:
             _wake_event.clear()
         else:
             last_index_capture = 0.0
-            et = datetime.now(ET)
-            print(
-                f"[chart_watcher] 🌙 NYSE closed "
-                f"({et.strftime('%a %H:%M %Z')}) — sleeping",
-                flush=True,
-            )
-            time.sleep(60)
-            continue
+            try:
+                watchlist = supabase_get_watchlist()
+                meta_by_sym = supabase_get_chart_metadata()
+
+                # Ensure chart_metadata rows exist
+                for sym in watchlist:
+                    if sym not in meta_by_sym:
+                        print(f"[chart_watcher] 🆕 new symbol: {sym}", flush=True)
+                        supabase_upsert_chart_metadata_row(sym)
+
+                meta_by_sym = supabase_get_chart_metadata()
+
+                # Only capture never-captured symbols after hours
+                new_symbols = [
+                    sym for sym in watchlist
+                    if never_captured(meta_by_sym.get(sym))
+                ]
+
+                if new_symbols:
+                    sym = new_symbols[0]
+                    print(
+                        f"[chart_watcher] 🌙 market closed — "
+                        f"capturing new symbol: {sym}",
+                        flush=True,
+                    )
+                    process_symbol(sym)
+                    print(f"[chart_watcher] ✅ {sym} done (after hours)", flush=True)
+                else:
+                    et = datetime.now(ET)
+                    print(
+                        f"[chart_watcher] 🌙 NYSE closed "
+                        f"({et.strftime('%a %H:%M %Z')}) — no new symbols",
+                        flush=True,
+                    )
+
+            except Exception as e:
+                print(f"[chart_watcher] error: {e}", flush=True)
+
+            # Wait 5 seconds or wake immediately from signal
+            _wake_event.wait(timeout=5)
+            _wake_event.clear()
 
 
 if __name__ == "__main__":

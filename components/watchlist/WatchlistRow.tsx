@@ -150,12 +150,29 @@ export function WatchlistRow({ item, selected }: { item: WatchlistRecord; select
     return () => el.removeEventListener("pointermove", move);
   }, [setDrag]);
 
+  const href = `/inside/home?symbol=${encodeURIComponent(item.symbol)}`;
+
   const onLinkClick = useCallback((e: React.MouseEvent) => {
     if (blockNextClickRef.current) {
       e.preventDefault();
       blockNextClickRef.current = false;
     }
   }, []);
+
+  const onPeelClick = useCallback(() => {
+    if (blockNextClickRef.current) {
+      blockNextClickRef.current = false;
+      return;
+    }
+    if (removing) return;
+    router.push(href);
+  }, [href, removing, router]);
+
+  const onPeelKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    onPeelClick();
+  }, [onPeelClick]);
 
   const rowBg = selected
     ? "linear-gradient(90deg, rgba(168,85,247,0.14) 0%, rgba(168,85,247,0.04) 55%, rgba(18,19,31,0.2) 100%)"
@@ -220,7 +237,7 @@ export function WatchlistRow({ item, selected }: { item: WatchlistRecord; select
         }}
       >
         <Link
-          href={`/inside/home?symbol=${encodeURIComponent(item.symbol)}`}
+          href={href}
           scroll={false}
           onClick={onLinkClick}
           aria-busy={removing}
@@ -253,7 +270,11 @@ export function WatchlistRow({ item, selected }: { item: WatchlistRecord; select
           onPointerDownCapture={onPointerDownCapture}
           onPointerUpCapture={onPointerUpCapture}
           onPointerCancelCapture={onPointerCancelCapture}
-          aria-label={`Swipe left on price to remove ${item.symbol}`}
+          onClick={onPeelClick}
+          onKeyDown={onPeelKeyDown}
+          role="button"
+          tabIndex={0}
+          aria-label={`Select ${item.symbol}. Swipe left on price to remove.`}
           style={{
             flexShrink: 0,
             minWidth: SWIPE_MAX_PX + 8,
@@ -272,6 +293,7 @@ export function WatchlistRow({ item, selected }: { item: WatchlistRecord; select
             transition: isDragging ? "none" : "transform 0.2s cubic-bezier(0.25, 0.8, 0.25, 1)",
             touchAction: "pan-y",
             cursor: removing ? "wait" : "grab",
+            WebkitTapHighlightColor: "transparent",
           }}
         >
           <span

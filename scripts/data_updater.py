@@ -543,38 +543,64 @@ def fetch_and_save_breadth() -> None:
         with urllib.request.urlopen(req, timeout=15) as resp:
             html = resp.read().decode("utf-8", errors="ignore")
 
-        adv = re.search(r"Advancing.*?(\d[\d,]+)", html, re.DOTALL)
-        dec = re.search(r"Declining.*?(\d[\d,]+)", html, re.DOTALL)
-        highs = re.search(r"New High.*?(\d[\d,]+)", html, re.DOTALL)
-        lows = re.search(r"New Low.*?(\d[\d,]+)", html, re.DOTALL)
-        sma50 = re.search(r"Above SMA50.*?([\d.]+)%", html, re.DOTALL)
-        sma200 = re.search(r"Above SMA200.*?([\d.]+)%", html, re.DOTALL)
+        soup = BeautifulSoup(html, "html.parser")
 
-        def parse_int(m: re.Match[str] | None) -> int | None:
-            if not m:
-                return None
-            return int(m.group(1).replace(",", ""))
+        advancing = declining = new_highs = new_lows = None
+        above_sma50_pct = above_sma200_pct = None
 
-        def parse_float_pct(m: re.Match[str] | None) -> float | None:
-            if not m:
-                return None
-            try:
-                return float(m.group(1))
-            except ValueError:
-                return None
+        for tag in soup.find_all(True):
+            text = tag.get_text(strip=True)
+            if not text or len(text) > 100:
+                continue
+
+            if text.startswith("Advancing"):
+                m = re.search(r"\((\d[\d,]*)\)", text)
+                if m:
+                    advancing = int(m.group(1).replace(",", ""))
+
+            elif text.startswith("Declining"):
+                m = re.search(r"\((\d[\d,]*)\)", text)
+                if m:
+                    declining = int(m.group(1).replace(",", ""))
+
+            elif "New High" in text:
+                m = re.search(r"\((\d[\d,]*)\)", text)
+                if m and new_highs is None:
+                    new_highs = int(m.group(1).replace(",", ""))
+
+            elif "New Low" in text:
+                m = re.search(r"\((\d[\d,]*)\)", text)
+                if m and new_lows is None:
+                    new_lows = int(m.group(1).replace(",", ""))
+
+            elif "SMA50" in text:
+                p = re.search(r"([\d.]+)%", text)
+                if p and above_sma50_pct is None:
+                    try:
+                        above_sma50_pct = float(p.group(1))
+                    except ValueError:
+                        pass
+
+            elif "SMA200" in text:
+                p = re.search(r"([\d.]+)%", text)
+                if p and above_sma200_pct is None:
+                    try:
+                        above_sma200_pct = float(p.group(1))
+                    except ValueError:
+                        pass
 
         payload = {
             "id": 1,
-            "advancing": parse_int(adv),
-            "declining": parse_int(dec),
-            "new_highs": parse_int(highs),
-            "new_lows": parse_int(lows),
-            "above_sma50_pct": parse_float_pct(sma50),
-            "above_sma200_pct": parse_float_pct(sma200),
+            "advancing": advancing,
+            "declining": declining,
+            "new_highs": new_highs,
+            "new_lows": new_lows,
+            "above_sma50_pct": above_sma50_pct,
+            "above_sma200_pct": above_sma200_pct,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
 
-        body = json.dumps(payload).encode("utf-8")
+        body = json.dumps(payload, default=str).encode("utf-8")
         req2 = urllib.request.Request(
             f"{SUPABASE_URL}/rest/v1/market_breadth?on_conflict=id",
             data=body,
@@ -588,10 +614,13 @@ def fetch_and_save_breadth() -> None:
         )
         urllib.request.urlopen(req2, timeout=10)
         print(
-            f"[updater] ✅ breadth saved: adv={payload['advancing']} "
-            f"dec={payload['declining']} highs={payload['new_highs']} lows={payload['new_lows']}",
+            f"[updater] ✅ breadth saved: "
+            f"adv={advancing} dec={declining} "
+            f"highs={new_highs} lows={new_lows} "
+            f"sma50={above_sma50_pct}% sma200={above_sma200_pct}%",
             flush=True,
         )
+
     except Exception as e:
         print(f"[updater] ❌ breadth fetch failed: {e}", flush=True)
 

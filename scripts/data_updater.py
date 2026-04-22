@@ -502,6 +502,33 @@ def print_data(data: dict) -> None:
         print(f"  Price target:  {data.get('analyst_price_target')}")
 
 
+def breadth_needs_fetch() -> bool:
+    """
+    Returns True if:
+    1. Market is open (NYSE regular hours), OR
+    2. Breadth has never been saved (updated_at is null)
+    """
+    if nyse_regular_session_open():
+        return True
+
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/market_breadth?select=updated_at&id=eq.1"
+        req = urllib.request.Request(
+            url,
+            headers={
+                "apikey": SUPABASE_KEY,
+                "Authorization": f"Bearer {SUPABASE_KEY}",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            rows = json.loads(resp.read().decode("utf-8"))
+        if rows and rows[0].get("updated_at"):
+            return False
+        return True
+    except Exception:
+        return False
+
+
 def fetch_and_save_breadth() -> None:
     if not SUPABASE_URL or not SUPABASE_KEY:
         return
@@ -578,10 +605,14 @@ def main() -> None:
         )
 
     while True:
-        now_ts = time.time()
-        if now_ts - last_breadth_fetch >= BREADTH_INTERVAL:
-            fetch_and_save_breadth()
-            last_breadth_fetch = now_ts
+        now = time.time()
+        if now - last_breadth_fetch >= BREADTH_INTERVAL:
+            if breadth_needs_fetch():
+                fetch_and_save_breadth()
+                last_breadth_fetch = now
+            else:
+                print("[updater] 🌙 NYSE closed — skipping breadth fetch", flush=True)
+                last_breadth_fetch = now
 
         ignore_hours = _ignore_market_hours()
         market_open = ignore_hours or nyse_regular_session_open()

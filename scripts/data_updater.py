@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import sys
@@ -40,6 +41,15 @@ HEADERS = {
 }
 
 FETCH_INTERVAL = 5
+
+
+def _safe_numeric(v: object) -> object | None:
+    """PostgREST JSON must not contain NaN/Infinity."""
+    if v is None:
+        return None
+    if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+        return None
+    return v
 
 
 def get_next_symbol() -> str | None:
@@ -243,7 +253,6 @@ def parse_finviz_html(symbol: str, html: str) -> dict:
         "analyst_firm": analyst["analyst_firm"],
         "analyst_rating_change": analyst["analyst_rating_change"],
         "analyst_price_target": analyst["analyst_price_target"],
-        "news": [],
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -266,11 +275,11 @@ def fetch_finviz_data(symbol: str) -> dict | None:
 def save_to_supabase(data: dict) -> bool:
     if not SUPABASE_URL or not SUPABASE_KEY:
         return False
-    payload = {
+    raw = {
         "symbol": data["symbol"],
-        "price": data.get("price"),
+        "price": _safe_numeric(data.get("price")),
         "change": data.get("change"),
-        "change_percent": data.get("change_percent"),
+        "change_percent": _safe_numeric(data.get("change_percent")),
         "volume": data.get("volume"),
         "market_cap": data.get("market_cap"),
         "high_52w": data.get("high_52w"),
@@ -292,12 +301,20 @@ def save_to_supabase(data: dict) -> bool:
         "analyst_firm": data.get("analyst_firm"),
         "analyst_rating_change": data.get("analyst_rating_change"),
         "analyst_price_target": data.get("analyst_price_target"),
-        "news": data.get("news") if data.get("news") is not None else [],
         "updated_at": data.get("updated_at"),
     }
+    # Do not send `news` unless the table has that column (PGRST204 otherwise).
+    # To add it: ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS news JSONB DEFAULT '[]'::jsonb;
+    payload: dict = {"symbol": raw["symbol"], "updated_at": raw["updated_at"]}
+    for k, v in raw.items():
+        if k in ("symbol", "updated_at"):
+            continue
+        if v is not None:
+            payload[k] = v
 
     try:
-        body = json.dumps(payload, default=str).encode("utf-8")
+        # strict JSON: PostgREST rejects NaN/Infinity from default float encoding
+        body = json.dumps(payload, allow_nan=False, default=str).encode("utf-8")
         url = f"{SUPABASE_URL}/rest/v1/watchlist?on_conflict=symbol"
         req = urllib.request.Request(
             url,
@@ -306,15 +323,31 @@ def save_to_supabase(data: dict) -> bool:
                 "apikey": SUPABASE_KEY,
                 "Authorization": f"Bearer {SUPABASE_KEY}",
                 "Content-Type": "application/json",
-                "Prefer": "return=minimal,resolution=merge-duplicates",
+                # merge-duplicates = UPSERT on primary key / on_conflict columns
+                "Prefer": "resolution=merge-duplicates",
             },
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=15) as resp:
             resp.read()
         return True
+    except urllib.error.HTTPError as e:
+        detail = ""
+        try:
+            detail = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            pass
+        print(
+            f"[updater] ❌ save failed {data.get('symbol')}: HTTP {e.code} {e.reason}\n{detail}",
+            flush=True,
+        )
+        return False
+    except (TypeError, ValueError) as e:
+        # e.g. allow_nan=False caught NaN when building JSON
+        print(f"[updater] ❌ save failed {data.get('symbol')}: invalid payload for JSON ({e})", flush=True)
+        return False
     except Exception as e:
-        print(f"[updater] ❌ save failed {data.get('symbol')}: {e}")
+        print(f"[updater] ❌ save failed {data.get('symbol')}: {e}", flush=True)
         return False
 
 

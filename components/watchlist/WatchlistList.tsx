@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef } from "react";
-import { useWatchlist } from "@/hooks/useWatchlist";
+import { useWatchlistContext } from "@/components/watchlist/WatchlistContext";
 import { WatchlistRow } from "@/components/watchlist/WatchlistRow";
 import { ErrorBanner } from "@/components/shared/ErrorBanner";
 
@@ -34,7 +34,7 @@ function isEditableTarget(target: EventTarget | null): boolean {
 
 export function WatchlistList() {
   const router = useRouter();
-  const { items, loading, error } = useWatchlist();
+  const { items, loading, error, refresh } = useWatchlistContext();
   const searchParams = useSearchParams();
   const selected = (searchParams.get("symbol") ?? "").toUpperCase();
   const itemsRef = useRef(items);
@@ -56,7 +56,7 @@ export function WatchlistList() {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(body.error ?? "Failed to remove");
       }
-      window.dispatchEvent(new Event("eg-watchlist-refresh"));
+      await refresh();
       router.push("/inside/home");
       router.refresh();
     } catch {
@@ -64,7 +64,7 @@ export function WatchlistList() {
     } finally {
       deleteInFlight.current = false;
     }
-  }, [router, selected]);
+  }, [refresh, router, selected]);
 
   useEffect(() => {
     if (!selected) return;

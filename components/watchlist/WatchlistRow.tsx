@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useWatchlistContext } from "@/components/watchlist/WatchlistContext";
 import type { WatchlistRecord } from "@/lib/types";
 import { formatUsd } from "@/lib/formatters";
 
@@ -26,6 +27,7 @@ const SWIPE_LOCK_PX = 10;
 
 export function WatchlistRow({ item, selected }: { item: WatchlistRecord; selected: boolean }) {
   const router = useRouter();
+  const { refresh } = useWatchlistContext();
   const [dragX, setDragX] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [removing, setRemoving] = useState(false);
@@ -58,13 +60,13 @@ export function WatchlistRow({ item, selected }: { item: WatchlistRecord; select
         const body = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(body.error ?? "Failed to remove");
       }
-      window.dispatchEvent(new Event("eg-watchlist-refresh"));
+      await refresh();
       router.refresh();
     } finally {
       setRemoving(false);
       setDrag(0);
     }
-  }, [item.symbol, router, setDrag]);
+  }, [item.symbol, refresh, router, setDrag]);
 
   const endDrag = useCallback(
     (commit: boolean) => {

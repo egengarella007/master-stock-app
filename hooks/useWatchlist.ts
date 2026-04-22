@@ -6,18 +6,24 @@ import { getSupabaseBrowser } from "@/lib/supabase";
 import type { WatchlistRecord } from "@/lib/types";
 
 /**
- * Refreshes when:
- * - Supabase Realtime fires on `public.watchlist` (no manual refresh) — enable in Dashboard:
- *   Database → Publications → supabase_realtime → include table `watchlist`
- * - Interval polling (fallback if Realtime is off)
- * - `window` event `eg-watchlist-refresh` (local add/remove)
+ * Rare re-fetch if Realtime misses (background tab, reconnect, publication off).
+ * Primary updates come from Supabase Realtime on `public.watchlist`.
  */
-export function useWatchlist(pollMs = 15_000) {
+const FALLBACK_POLL_MS = 30_000;
+
+/**
+ * Loads watchlist from Supabase.
+ *
+ * Updates:
+ * - **Realtime** `postgres_changes` on `public.watchlist` → immediate `refresh()`.
+ *   Enable: Supabase → Database → Publications → `supabase_realtime` → table `watchlist`.
+ * - **`eg-watchlist-refresh`** window event (optional; same-tab code can `await refresh()` instead).
+ * - **Fallback interval** every {@link FALLBACK_POLL_MS} ms.
+ */
+export function useWatchlist() {
   const [items, setItems] = useState<WatchlistRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  /** Browser `setTimeout` id (number); avoids Node `Timeout` vs DOM mismatch in Next types. */
-  const debounceRef = useRef<number | null>(null);
 
   const load = useCallback(async () => {
     const sb = getSupabaseBrowser();
@@ -41,14 +47,6 @@ export function useWatchlist(pollMs = 15_000) {
     setLoading(false);
   }, []);
 
-  const scheduleLoad = useCallback(() => {
-    if (debounceRef.current !== null) window.clearTimeout(debounceRef.current);
-    debounceRef.current = window.setTimeout(() => {
-      debounceRef.current = null;
-      void load();
-    }, 400);
-  }, [load]);
-
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -56,10 +54,10 @@ export function useWatchlist(pollMs = 15_000) {
       await load();
       if (cancelled) return;
     })();
-    const id = window.setInterval(() => {
+
+    const onRefresh = () => {
       void load();
-    }, pollMs);
-    const onRefresh = () => void load();
+    };
     window.addEventListener("eg-watchlist-refresh", onRefresh);
 
     const sb = getSupabaseBrowser();
@@ -71,20 +69,23 @@ export function useWatchlist(pollMs = 15_000) {
           "postgres_changes",
           { event: "*", schema: "public", table: "watchlist" },
           () => {
-            scheduleLoad();
+            void load();
           },
         )
         .subscribe();
     }
 
+    const pollId = window.setInterval(() => {
+      void load();
+    }, FALLBACK_POLL_MS);
+
     return () => {
       cancelled = true;
-      window.clearInterval(id);
+      window.clearInterval(pollId);
       window.removeEventListener("eg-watchlist-refresh", onRefresh);
-      if (debounceRef.current !== null) window.clearTimeout(debounceRef.current);
       if (sb && channel) void sb.removeChannel(channel);
     };
-  }, [load, pollMs, scheduleLoad]);
+  }, [load]);
 
   return { items, loading, error, refresh: load };
 }

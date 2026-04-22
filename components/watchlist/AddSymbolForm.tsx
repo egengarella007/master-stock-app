@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useWatchlistContext } from "@/components/watchlist/WatchlistContext";
 
 const COLORS = {
   bg: "rgba(255,255,255,0.04)",
@@ -27,6 +28,7 @@ function hrefForSymbol(sym: string) {
 
 export function AddSymbolForm() {
   const router = useRouter();
+  const { refresh } = useWatchlistContext();
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -55,7 +57,7 @@ export function AddSymbolForm() {
         throw new Error(body.error ?? "Failed to add");
       }
       setValue("");
-      window.dispatchEvent(new Event("eg-watchlist-refresh"));
+      await refresh();
       router.refresh();
       router.push(hrefForSymbol(sym));
     } catch (err) {
@@ -63,7 +65,7 @@ export function AddSymbolForm() {
     } finally {
       setSubmitting(false);
     }
-  }, [router, value]);
+  }, [refresh, router, value]);
 
   const onSubmit = useCallback(
     (e: React.FormEvent) => {

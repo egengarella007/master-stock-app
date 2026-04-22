@@ -2,6 +2,7 @@
 
 import { Suspense, useCallback, useState } from "react";
 import { AddSymbolForm } from "@/components/watchlist/AddSymbolForm";
+import { WatchlistProvider } from "@/components/watchlist/WatchlistContext";
 import { WatchlistList } from "@/components/watchlist/WatchlistList";
 import { MarketSidebar } from "@/components/shell/MarketSidebar";
 
@@ -65,7 +66,7 @@ export function Sidebar() {
         </button>
       ) : (
         <>
-          <div
+          <WatchlistProvider
             style={{
               flex: 1,
               minWidth: 0,
@@ -102,7 +103,7 @@ export function Sidebar() {
                 <WatchlistList />
               </Suspense>
             </div>
-          </div>
+          </WatchlistProvider>
           <button
             type="button"
             onClick={collapse}

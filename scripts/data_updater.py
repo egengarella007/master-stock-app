@@ -54,9 +54,14 @@ def _safe_numeric(v: object) -> object | None:
 
 def get_next_symbol() -> str | None:
     """
-    Single watchlist table:
-    1. Rows where updated_at IS NULL (never fetched), oldest added_at first
-    2. Else oldest updated_at first
+    Before each Finviz pull, pick one symbol from `watchlist`:
+
+    1. **New / not yet filled** — `updated_at` is NULL (e.g. just added in the UI).
+       Take the **most recently added** (`added_at` DESC) so a brand-new ticker
+       jumps ahead of older symbols that were never synced.
+
+    2. **Otherwise** — every row has been fetched at least once.
+       Take the **stalest** row: smallest `updated_at` (longest time since last update).
     """
     if not SUPABASE_URL or not SUPABASE_KEY:
         return None
@@ -65,29 +70,33 @@ def get_next_symbol() -> str | None:
         "Authorization": f"Bearer {SUPABASE_KEY}",
     }
     try:
-        url_never = (
+        # Queue 1: newly added or never successfully saved — prioritize latest add.
+        url_new = (
             f"{SUPABASE_URL}/rest/v1/watchlist"
-            f"?select=symbol&updated_at=is.null&order=added_at.asc&limit=1"
+            f"?select=symbol,added_at&updated_at=is.null&order=added_at.desc&limit=1"
         )
-        req = urllib.request.Request(url_never, headers=headers)
+        req = urllib.request.Request(url_new, headers=headers)
         with urllib.request.urlopen(req, timeout=10) as resp:
             rows = json.loads(resp.read().decode("utf-8"))
         if rows and rows[0].get("symbol"):
             symbol = str(rows[0]["symbol"]).strip().upper()
-            print(f"[updater] 🆕 never fetched: {symbol}")
+            print(f"[updater] 🆕 new / pending first fetch: {symbol} (added {rows[0].get('added_at', '?')})")
             return symbol
 
-        url_old = (
+        # Queue 2: rows already synced at least once — smallest `updated_at`
+        # in Supabase = longest time since that row was last written (stalest).
+        # PostgREST: `is` operator with `not_null` (see postgrest filter docs).
+        url_stale = (
             f"{SUPABASE_URL}/rest/v1/watchlist"
-            f"?select=symbol,updated_at&order=updated_at.asc.nullslast&limit=1"
+            f"?select=symbol,updated_at&updated_at=is.not_null&order=updated_at.asc&limit=1"
         )
-        req2 = urllib.request.Request(url_old, headers=headers)
+        req2 = urllib.request.Request(url_stale, headers=headers)
         with urllib.request.urlopen(req2, timeout=10) as resp2:
             rows2 = json.loads(resp2.read().decode("utf-8"))
         if rows2 and rows2[0].get("symbol"):
             symbol = str(rows2[0]["symbol"]).strip().upper()
             updated = rows2[0].get("updated_at", "never")
-            print(f"[updater] 🔄 oldest updated_at: {symbol} (last: {updated})")
+            print(f"[updater] 🔄 stalest refresh: {symbol} (last: {updated})")
             return symbol
 
         return None

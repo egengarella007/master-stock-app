@@ -21,6 +21,10 @@ function isValidSymbol(sym: string): boolean {
   return /^[A-Z0-9.\-]{1,15}$/.test(sym);
 }
 
+function hrefForSymbol(sym: string) {
+  return `/inside/home?symbol=${encodeURIComponent(sym)}`;
+}
+
 export function AddSymbolForm() {
   const router = useRouter();
   const [value, setValue] = useState("");
@@ -40,6 +44,23 @@ export function AddSymbolForm() {
     }
     setSubmitting(true);
     try {
+      const listRes = await fetch("/api/watchlist", { cache: "no-store" });
+      if (!listRes.ok) {
+        const body = (await listRes.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? "Could not load watchlist");
+      }
+      const listJson = (await listRes.json()) as { items?: { symbol: string }[] };
+      const items = listJson.items ?? [];
+      const already = items.some((r) => r.symbol === sym);
+
+      if (already) {
+        setValue("");
+        window.dispatchEvent(new Event("eg-watchlist-refresh"));
+        router.refresh();
+        router.push(hrefForSymbol(sym));
+        return;
+      }
+
       const res = await fetch("/api/watchlist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -52,6 +73,7 @@ export function AddSymbolForm() {
       setValue("");
       window.dispatchEvent(new Event("eg-watchlist-refresh"));
       router.refresh();
+      router.push(hrefForSymbol(sym));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to add");
     } finally {
@@ -73,7 +95,7 @@ export function AddSymbolForm() {
         <input
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          placeholder="Add ticker..."
+          placeholder="Search or add ticker..."
           autoCapitalize="characters"
           style={{
             flex: 1,
@@ -92,7 +114,7 @@ export function AddSymbolForm() {
         <button
           type="submit"
           disabled={submitting}
-          aria-label="Add ticker"
+          aria-label="Add or go to ticker"
           style={{
             width: 28,
             height: 32,

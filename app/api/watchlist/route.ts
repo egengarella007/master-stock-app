@@ -62,6 +62,12 @@ export async function POST(request: NextRequest) {
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+    const { error: chartMetaError } = await supabase
+      .from("chart_metadata")
+      .upsert({ symbol: sym }, { onConflict: "symbol", ignoreDuplicates: true });
+    if (chartMetaError) {
+      return NextResponse.json({ error: chartMetaError.message }, { status: 500 });
+    }
     notifyUpdaterWake();
     const wakeUrl = process.env.CHART_WATCHER_WAKE_URL;
     const wakeSecret = process.env.CHART_WATCHER_WAKE_SECRET;

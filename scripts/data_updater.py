@@ -5,10 +5,12 @@ import math
 import os
 import re
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
@@ -46,6 +48,12 @@ FETCH_INTERVAL = 5
 # (so a ticker added from the UI is picked up quickly).
 CLOSED_POLL_INTERVAL = 15
 
+# Optional: HTTP wake so the app (or anything) can skip this sleep immediately.
+# Set UPDATER_WAKE_PORT (e.g. 9090) and UPDATER_WAKE_SECRET (long random string).
+# POST http://127.0.0.1:9090/wake with header Authorization: Bearer <secret>
+# Next.js: set UPDATER_WAKE_URL + UPDATER_WAKE_SECRET to match (see app/api/watchlist).
+_wake_event = threading.Event()
+
 NYSE_TZ = ZoneInfo("America/New_York")
 # Regular session only (Mon–Fri 09:30–16:00 ET). Does not model exchange holidays.
 NYSE_OPEN_MIN = 9 * 60 + 30
@@ -70,6 +78,69 @@ def _ignore_market_hours() -> bool:
         "1",
         "true",
         "yes",
+    )
+
+
+def _sleep_closed_poll() -> None:
+    """Sleep CLOSED_POLL_INTERVAL unless HTTP wake fires (see start_wake_server_if_configured)."""
+    elapsed = 0.0
+    step = 1.0
+    while elapsed < CLOSED_POLL_INTERVAL:
+        remaining = CLOSED_POLL_INTERVAL - elapsed
+        timeout = min(step, remaining)
+        if _wake_event.wait(timeout):
+            _wake_event.clear()
+            print("[updater] ⚡ wake (HTTP) — checking queue now", flush=True)
+            return
+        elapsed += timeout
+
+
+def _make_wake_handler(secret: str) -> type[BaseHTTPRequestHandler]:
+    class WakeHandler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            path = self.path.split("?", 1)[0]
+            if path != "/wake":
+                self.send_error(404)
+                return
+            auth = self.headers.get("Authorization", "")
+            if auth != f"Bearer {secret}":
+                self.send_error(401)
+                return
+            _wake_event.set()
+            self.send_response(204)
+            self.end_headers()
+
+        def log_message(self, *_args: object) -> None:
+            pass
+
+    return WakeHandler
+
+
+def start_wake_server_if_configured() -> None:
+    raw_port = (os.environ.get("UPDATER_WAKE_PORT") or "").strip()
+    port = int(raw_port) if raw_port.isdigit() else 0
+    secret = (os.environ.get("UPDATER_WAKE_SECRET") or "").strip()
+    bind = (os.environ.get("UPDATER_WAKE_BIND") or "127.0.0.1").strip() or "127.0.0.1"
+
+    if port <= 0:
+        return
+    if not secret:
+        print(
+            "[updater] ⚠️ UPDATER_WAKE_PORT set but UPDATER_WAKE_SECRET empty — wake server disabled",
+            flush=True,
+        )
+        return
+
+    handler = _make_wake_handler(secret)
+
+    def serve() -> None:
+        srv = ThreadingHTTPServer((bind, port), handler)
+        srv.serve_forever()
+
+    threading.Thread(target=serve, daemon=True, name="updater-wake-http").start()
+    print(
+        f"[updater] ⚡ wake server listening POST http://{bind}:{port}/wake",
+        flush=True,
     )
 
 
@@ -432,6 +503,7 @@ def print_data(data: dict) -> None:
 def main() -> None:
     print("[updater] 🚀 starting stock data updater")
     print(f"[updater] checking for new/stale stocks every {FETCH_INTERVAL}s")
+    start_wake_server_if_configured()
     if _ignore_market_hours():
         print("[updater] ⚙️ UPDATER_IGNORE_MARKET_HOURS set — full refresh any time")
     else:
@@ -452,9 +524,9 @@ def main() -> None:
                 et = datetime.now(timezone.utc).astimezone(NYSE_TZ)
                 print(
                     f"[updater] 🌙 NYSE closed (now {et.strftime('%a %Y-%m-%d %H:%M %Z')}), "
-                    f"no pending new symbols — sleeping {CLOSED_POLL_INTERVAL}s"
+                    f"no pending new symbols — sleeping up to {CLOSED_POLL_INTERVAL}s (wakeable)"
                 )
-                time.sleep(CLOSED_POLL_INTERVAL)
+                _sleep_closed_poll()
                 continue
 
         if not symbol:

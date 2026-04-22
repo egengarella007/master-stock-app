@@ -3,7 +3,7 @@ Background chart capture service.
 
 Reads watchlist from Supabase, ensures rows exist in chart_metadata,
 prioritizes never-captured symbols then oldest captures beyond a 10 minute TTL,
-captures Finviz charts for D/W/M using Playwright (one browser per symbol),
+captures Finviz charts for D/W/M using Playwright (parallel threads),
 uploads PNGs to Supabase Storage bucket `charts`, and updates chart_metadata.
 
 Runs forever.
@@ -16,6 +16,7 @@ import json
 import os
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -172,6 +173,86 @@ def upload_to_supabase_storage(local_path: str, object_name: str) -> None:
     storage_upload(object_name, png_bytes)
 
 
+def capture_finviz_chart_png(symbol: str, period: str) -> bytes:
+    p = period.lower()
+    if p not in ("d", "w", "m"):
+        raise ValueError("period must be d, w, or m")
+
+    url = f"https://finviz.com/quote.ashx?t={symbol}&p={p}"
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        context = browser.new_context(
+            viewport={"width": 1920, "height": 1080},
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            ),
+        )
+        context.add_cookies(
+            [
+                {
+                    "name": "theme",
+                    "value": "dark",
+                    "domain": ".finviz.com",
+                    "path": "/",
+                }
+            ]
+        )
+        page = context.new_page()
+        page.set_default_timeout(30_000)
+
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+
+            try:
+                page.wait_for_selector(".canvas.outline-none", timeout=15_000)
+            except Exception:
+                pass
+
+            page.wait_for_timeout(4000)
+
+            data_url = page.evaluate(
+                """() => {
+                const nodes = Array.from(
+                    document.querySelectorAll('.canvas.outline-none')
+                );
+                for (const container of nodes) {
+                    const canvases = container.querySelectorAll('canvas');
+                    if (!canvases.length) continue;
+                    const scale = 3;
+                    const w = canvases[0].width;
+                    const h = canvases[0].height;
+                    const ec = document.createElement('canvas');
+                    ec.width = w * scale;
+                    ec.height = h * scale;
+                    const ctx = ec.getContext('2d');
+                    ctx.scale(scale, scale);
+                    ctx.fillStyle = '#1b1b1b';
+                    ctx.fillRect(0, 0, w, h);
+                    canvases.forEach(c => ctx.drawImage(c, 0, 0));
+                    return ec.toDataURL('image/png', 1.0);
+                }
+                return null;
+            }"""
+            )
+
+            if not data_url:
+                raise RuntimeError(f"no canvas found for {symbol} {period}")
+
+            return base64.b64decode(data_url.split(",", 1)[1])
+        finally:
+            context.close()
+            browser.close()
+
+
+def capture_period_worker(args: Tuple[str, str]) -> Tuple[str, bytes]:
+    symbol, period = args
+    png = capture_finviz_chart_png(symbol, period)
+    return period, png
+
+
 def newest_capture(meta: Dict[str, Optional[str]]) -> Optional[datetime]:
     times = [parse_ts(meta.get("d_updated_at")), parse_ts(meta.get("w_updated_at")), parse_ts(meta.get("m_updated_at"))]
     times_n = [t for t in times if t is not None]
@@ -220,106 +301,27 @@ def pick_symbol(watchlist: List[str], meta_by_sym: Dict[str, Dict[str, Optional[
 
 
 def process_symbol(symbol: str) -> None:
-    with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True)
-        context = browser.new_context(
-            viewport={"width": 1920, "height": 1080},
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            ),
-        )
-        context.add_cookies(
-            [
-                {
-                    "name": "theme",
-                    "value": "dark",
-                    "domain": ".finviz.com",
-                    "path": "/",
-                }
-            ]
-        )
+    tasks: List[Tuple[str, str]] = [(symbol, "d"), (symbol, "w"), (symbol, "m")]
+    results: Dict[str, bytes] = {}
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        futures = [ex.submit(capture_period_worker, t) for t in tasks]
+        for fut in as_completed(futures):
+            period, png = fut.result()
+            results[period] = png
 
-        patch: Dict[str, Any] = {}
-        now = iso_now()
+    patch: Dict[str, Any] = {}
+    now = iso_now()
+    for period, png in results.items():
+        name = storage_object_name(symbol, period)
+        storage_upload(name, png)
+        if period == "d":
+            patch["d_updated_at"] = now
+        elif period == "w":
+            patch["w_updated_at"] = now
+        else:
+            patch["m_updated_at"] = now
 
-        try:
-            for period in ["d", "w", "m"]:
-                page = None
-                data_url: Optional[str] = None
-                try:
-                    page = context.new_page()
-                    page.set_default_timeout(60_000)
-
-                    url = f"https://finviz.com/quote.ashx?t={symbol}&p={period}"
-                    page.goto(url, wait_until="domcontentloaded", timeout=60_000)
-
-                    try:
-                        page.wait_for_selector(".canvas.outline-none", timeout=20_000)
-                    except Exception:
-                        pass
-
-                    page.wait_for_timeout(3000)
-
-                    data_url = page.evaluate(
-                        """() => {
-                        const nodes = Array.from(
-                            document.querySelectorAll('.canvas.outline-none')
-                        );
-                        for (const container of nodes) {
-                            const canvases = container.querySelectorAll('canvas');
-                            if (!canvases.length) continue;
-                            const scale = 3;
-                            const w = canvases[0].width;
-                            const h = canvases[0].height;
-                            const ec = document.createElement('canvas');
-                            ec.width = w * scale;
-                            ec.height = h * scale;
-                            const ctx = ec.getContext('2d');
-                            ctx.scale(scale, scale);
-                            ctx.fillStyle = '#1b1b1b';
-                            ctx.fillRect(0, 0, w, h);
-                            canvases.forEach(c => ctx.drawImage(c, 0, 0));
-                            return ec.toDataURL('image/png', 1.0);
-                        }
-                        return null;
-                    }"""
-                    )
-
-                    if data_url:
-                        png = base64.b64decode(data_url.split(",", 1)[1])
-                        name = storage_object_name(symbol, period)
-                        storage_upload(name, png)
-                        print(f"[chart_watcher] ✅ {symbol} {period.upper()}", flush=True)
-                        if period == "d":
-                            patch["d_updated_at"] = now
-                        elif period == "w":
-                            patch["w_updated_at"] = now
-                        else:
-                            patch["m_updated_at"] = now
-                    else:
-                        print(
-                            f"[chart_watcher] ⚠️ no canvas for {symbol} {period.upper()}",
-                            flush=True,
-                        )
-                except Exception as e:
-                    print(
-                        f"[chart_watcher] ❌ {symbol} {period.upper()}: {e}",
-                        flush=True,
-                    )
-                finally:
-                    if page is not None:
-                        try:
-                            page.close()
-                        except Exception:
-                            pass
-        finally:
-            context.close()
-            browser.close()
-
-    if patch:
-        supabase_patch_chart_metadata(symbol, patch)
+    supabase_patch_chart_metadata(symbol, patch)
 
 
 def capture_index_charts() -> None:

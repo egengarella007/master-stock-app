@@ -59,7 +59,8 @@ def start_wake_server() -> None:
             pass
 
     def serve() -> None:
-        server = ThreadingHTTPServer(("127.0.0.1", WAKE_PORT), WakeHandler)
+        bind = os.environ.get("CHART_WATCHER_WAKE_BIND", "0.0.0.0")
+        server = ThreadingHTTPServer((bind, WAKE_PORT), WakeHandler)
         server.serve_forever()
 
     threading.Thread(target=serve, daemon=True, name="wake-server").start()
@@ -506,8 +507,8 @@ def main() -> None:
             except Exception as e:
                 print(f"[chart_watcher] error: {e}", flush=True)
 
-            # Wait 5 seconds or wake immediately from signal
-            _wake_event.wait(timeout=5)
+            # Wait 30 minutes or wake immediately from signal
+            _wake_event.wait(timeout=30 * 60)
             _wake_event.clear()
 
 

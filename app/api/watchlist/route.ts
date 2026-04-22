@@ -26,22 +26,6 @@ function notifyUpdaterWake(): void {
     .finally(() => clearTimeout(t));
 }
 
-/** If `chart_watcher.py` wake server is configured, skip its idle wait. */
-function notifyChartWatcherWake(): void {
-  const url = process.env.CHART_WATCHER_WAKE_URL?.trim();
-  const secret = process.env.CHART_WATCHER_WAKE_SECRET?.trim();
-  if (!url || !secret) return;
-  const ac = new AbortController();
-  const t = setTimeout(() => ac.abort(), 2500);
-  void fetch(url, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${secret}` },
-    signal: ac.signal,
-  })
-    .catch(() => {})
-    .finally(() => clearTimeout(t));
-}
-
 export async function GET() {
   try {
     const supabase = getSupabaseService();
@@ -79,7 +63,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
     notifyUpdaterWake();
-    notifyChartWatcherWake();
+    const wakeUrl = process.env.CHART_WATCHER_WAKE_URL;
+    const wakeSecret = process.env.CHART_WATCHER_WAKE_SECRET;
+    if (wakeUrl && wakeSecret) {
+      fetch(wakeUrl, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${wakeSecret}` },
+      }).catch(() => {});
+    }
     return NextResponse.json({ ok: true, symbol: sym });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Unknown error";

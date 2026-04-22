@@ -506,13 +506,13 @@ def breadth_needs_fetch() -> bool:
     """
     Returns True if:
     1. Market is open (NYSE regular hours), OR
-    2. Breadth has never been saved (updated_at is null)
+    2. Breadth has never been populated (advancing is null)
     """
     if nyse_regular_session_open():
         return True
 
     try:
-        url = f"{SUPABASE_URL}/rest/v1/market_breadth?select=updated_at&id=eq.1"
+        url = f"{SUPABASE_URL}/rest/v1/market_breadth?select=advancing&id=eq.1"
         req = urllib.request.Request(
             url,
             headers={
@@ -522,9 +522,9 @@ def breadth_needs_fetch() -> bool:
         )
         with urllib.request.urlopen(req, timeout=5) as resp:
             rows = json.loads(resp.read().decode("utf-8"))
-        if rows and rows[0].get("updated_at"):
-            return False
-        return True
+        if rows and rows[0].get("advancing") is not None:
+            return False  # Has real data, market closed, skip
+        return True  # advancing is null, fetch once to populate
     except Exception:
         return False
 

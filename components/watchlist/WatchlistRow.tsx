@@ -9,10 +9,9 @@ import { formatUsd } from "@/lib/formatters";
 const COLORS = {
   text: "#f8fafc",
   green: "#34d399",
-  /** Negative % change — soft violet instead of red. */
-  down: "#c084fc",
-  /** Swipe remove hint — slightly brighter violet. */
-  downStrong: "#d8b4fe",
+  red: "#f87171",
+  /** Swipe-remove label (stays violet so it’s distinct from negative %). */
+  removeHint: "#d8b4fe",
   muted: "#64748b",
 };
 
@@ -158,7 +157,9 @@ export function WatchlistRow({ item, selected }: { item: WatchlistRecord; select
     }
   }, []);
 
-  const rowBg = selected ? "rgba(168,85,247,0.06)" : "rgba(18,19,31,0.98)";
+  const rowBg = selected
+    ? "linear-gradient(90deg, rgba(168,85,247,0.14) 0%, rgba(168,85,247,0.04) 55%, rgba(18,19,31,0.2) 100%)"
+    : "rgba(18,19,31,0.98)";
 
   return (
     <div
@@ -190,7 +191,7 @@ export function WatchlistRow({ item, selected }: { item: WatchlistRecord; select
           style={{
             fontSize: 11,
             fontWeight: 800,
-            color: COLORS.downStrong,
+            color: COLORS.removeHint,
             letterSpacing: "0.06em",
             textTransform: "uppercase",
             opacity: removeHintOpacity,
@@ -287,7 +288,7 @@ export function WatchlistRow({ item, selected }: { item: WatchlistRecord; select
             style={{
               fontSize: 11,
               fontWeight: 500,
-              color: cp == null ? COLORS.muted : cp >= 0 ? COLORS.green : COLORS.down,
+              color: cp == null ? COLORS.muted : cp >= 0 ? COLORS.green : COLORS.red,
               fontVariantNumeric: "tabular-nums",
             }}
           >

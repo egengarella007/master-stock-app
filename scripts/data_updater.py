@@ -44,8 +44,9 @@ HEADERS = {
 }
 
 FETCH_INTERVAL = 5
-last_breadth_fetch = 0.0
 BREADTH_INTERVAL = 300  # 5 minutes
+# Sentinel so first loop always passes (now - last >= BREADTH_INTERVAL).
+last_breadth_fetch = -BREADTH_INTERVAL
 # Seconds between DB checks when NYSE is closed and there are no pending new rows
 # (so a ticker added from the UI is picked up quickly).
 CLOSED_POLL_INTERVAL = 15
@@ -508,6 +509,10 @@ def breadth_needs_fetch() -> bool:
     1. Market is open (NYSE regular hours), OR
     2. Breadth has never been populated (advancing is null)
     """
+    print(
+        f"[updater] 🔍 breadth_needs_fetch: market_open={nyse_regular_session_open()}",
+        flush=True,
+    )
     if nyse_regular_session_open():
         return True
 
@@ -522,6 +527,7 @@ def breadth_needs_fetch() -> bool:
         )
         with urllib.request.urlopen(req, timeout=5) as resp:
             rows = json.loads(resp.read().decode("utf-8"))
+        print(f"[updater] 🔍 breadth row: {rows}", flush=True)
         if rows and rows[0].get("advancing") is not None:
             return False  # Has real data, market closed, skip
         return True  # advancing is null, fetch once to populate
@@ -611,7 +617,7 @@ def main() -> None:
                 fetch_and_save_breadth()
                 last_breadth_fetch = now
             else:
-                print("[updater] 🌙 NYSE closed — skipping breadth fetch", flush=True)
+                print("[updater] 🌙 NYSE closed — skipping breadth", flush=True)
                 last_breadth_fetch = now
 
         ignore_hours = _ignore_market_hours()

@@ -15,9 +15,9 @@ const COLORS = {
 
 const FONT = "system-ui, -apple-system, sans-serif";
 
-/** How far left (px) before we delete on release. */
+/** How far left (px) the price box must move before delete on release. */
 const SWIPE_COMMIT_PX = 52;
-/** Max drag left reveal. */
+/** Max drag left — matches reveal strip width. */
 const SWIPE_MAX_PX = 88;
 /** Movement before we decide horizontal vs vertical intent. */
 const SWIPE_LOCK_PX = 10;
@@ -27,7 +27,7 @@ export function WatchlistRow({ item, selected }: { item: WatchlistRecord; select
   const [dragX, setDragX] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [removing, setRemoving] = useState(false);
-  const rowRef = useRef<HTMLDivElement>(null);
+  const peelRef = useRef<HTMLDivElement>(null);
   const dragXRef = useRef(0);
   const startRef = useRef<{ x: number; y: number } | null>(null);
   const axisRef = useRef<"none" | "h" | "v">("none");
@@ -41,6 +41,8 @@ export function WatchlistRow({ item, selected }: { item: WatchlistRecord; select
     dragXRef.current = x;
     setDragX(x);
   }, []);
+
+  const removeHintOpacity = Math.min(1, Math.abs(dragX) / 28);
 
   const removeRow = useCallback(async () => {
     setRemoving(true);
@@ -84,14 +86,14 @@ export function WatchlistRow({ item, selected }: { item: WatchlistRecord; select
     startRef.current = { x: e.clientX, y: e.clientY };
     axisRef.current = "none";
     setIsDragging(true);
-    rowRef.current?.setPointerCapture(e.pointerId);
+    peelRef.current?.setPointerCapture(e.pointerId);
   }, []);
 
   const onPointerUpCapture = useCallback(
     (e: React.PointerEvent) => {
       if (e.pointerId !== pointerIdRef.current) return;
       try {
-        rowRef.current?.releasePointerCapture(e.pointerId);
+        peelRef.current?.releasePointerCapture(e.pointerId);
       } catch {
         /* ignore */
       }
@@ -113,7 +115,7 @@ export function WatchlistRow({ item, selected }: { item: WatchlistRecord; select
     (e: React.PointerEvent) => {
       if (e.pointerId !== pointerIdRef.current) return;
       try {
-        rowRef.current?.releasePointerCapture(e.pointerId);
+        peelRef.current?.releasePointerCapture(e.pointerId);
       } catch {
         /* ignore */
       }
@@ -123,7 +125,7 @@ export function WatchlistRow({ item, selected }: { item: WatchlistRecord; select
   );
 
   useEffect(() => {
-    const el = rowRef.current;
+    const el = peelRef.current;
     if (!el) return;
     const move = (e: PointerEvent) => {
       if (e.pointerId !== pointerIdRef.current || !startRef.current) return;
@@ -153,20 +155,20 @@ export function WatchlistRow({ item, selected }: { item: WatchlistRecord; select
     }
   }, []);
 
+  const rowBg = selected ? "rgba(168,85,247,0.06)" : "rgba(18,19,31,0.98)";
+  const peelBg = selected ? "rgba(168,85,247,0.14)" : "rgba(22,24,38,0.98)";
+  const peelBorder = selected ? "rgba(168,85,247,0.4)" : "rgba(148,163,184,0.22)";
+
   return (
     <div
-      ref={rowRef}
-      onPointerDownCapture={onPointerDownCapture}
-      onPointerUpCapture={onPointerUpCapture}
-      onPointerCancelCapture={onPointerCancelCapture}
       style={{
         position: "relative",
         fontFamily: FONT,
         overflow: "hidden",
-        touchAction: "pan-y",
         opacity: removing ? 0.45 : 1,
       }}
     >
+      {/* Underlay: only uncovered when the price box slides left */}
       <div
         aria-hidden
         style={{
@@ -178,46 +180,58 @@ export function WatchlistRow({ item, selected }: { item: WatchlistRecord; select
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          background: "linear-gradient(90deg, transparent, rgba(248,113,113,0.35))",
-          color: COLORS.red,
-          fontSize: 11,
-          fontWeight: 700,
-          letterSpacing: "0.04em",
+          background: "linear-gradient(90deg, transparent, rgba(248,113,113,0.22))",
           pointerEvents: "none",
           userSelect: "none",
         }}
       >
-        Remove
+        <span
+          style={{
+            fontSize: 11,
+            fontWeight: 800,
+            color: COLORS.red,
+            letterSpacing: "0.06em",
+            textTransform: "uppercase",
+            opacity: removeHintOpacity,
+            transition: isDragging ? "none" : "opacity 0.15s ease-out",
+          }}
+        >
+          Remove
+        </span>
       </div>
 
-      <Link
-        href={`/inside/home?symbol=${encodeURIComponent(item.symbol)}`}
-        scroll={false}
-        onClick={onLinkClick}
-        aria-busy={removing}
+      <div
+        role="row"
         style={{
-          display: "block",
-          textDecoration: "none",
-          color: "inherit",
-          touchAction: "pan-y",
-          transform: `translateX(${dragX}px)`,
-          transition: isDragging ? "none" : "transform 0.18s ease-out",
-          WebkitTapHighlightColor: "transparent",
+          position: "relative",
+          zIndex: 1,
+          display: "flex",
+          alignItems: "stretch",
+          justifyContent: "space-between",
+          gap: 4,
+          padding: "0 6px 0 8px",
+          height: 36,
+          borderBottom: "1px solid rgba(148,163,184,0.08)",
+          borderLeft: selected ? "3px solid #a855f7" : "3px solid transparent",
+          background: rowBg,
+          boxSizing: "border-box",
         }}
       >
-        <div
-          role="row"
+        <Link
+          href={`/inside/home?symbol=${encodeURIComponent(item.symbol)}`}
+          scroll={false}
+          onClick={onLinkClick}
+          aria-busy={removing}
           style={{
+            flex: 1,
+            minWidth: 0,
             display: "flex",
             alignItems: "center",
-            justifyContent: "space-between",
-            padding: "0 8px",
-            height: 36,
-            borderBottom: "1px solid rgba(148,163,184,0.08)",
-            borderLeft: selected ? "3px solid #a855f7" : "3px solid transparent",
-            background: selected ? "rgba(168,85,247,0.06)" : "rgba(18,19,31,0.98)",
+            textDecoration: "none",
+            color: "inherit",
+            touchAction: "manipulation",
+            WebkitTapHighlightColor: "transparent",
             cursor: removing ? "wait" : "pointer",
-            boxSizing: "border-box",
           }}
         >
           <span
@@ -230,39 +244,56 @@ export function WatchlistRow({ item, selected }: { item: WatchlistRecord; select
           >
             {item.symbol}
           </span>
+        </Link>
 
-          <div
+        <div
+          ref={peelRef}
+          onPointerDownCapture={onPointerDownCapture}
+          onPointerUpCapture={onPointerUpCapture}
+          onPointerCancelCapture={onPointerCancelCapture}
+          aria-label={`Swipe left on price to remove ${item.symbol}`}
+          style={{
+            flexShrink: 0,
+            minWidth: SWIPE_MAX_PX + 8,
+            margin: "4px 4px 4px 0",
+            padding: "3px 8px",
+            borderRadius: 6,
+            border: `1px solid ${peelBorder}`,
+            background: peelBg,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "flex-end",
+            justifyContent: "center",
+            gap: 1,
+            boxSizing: "border-box",
+            transform: `translateX(${dragX}px)`,
+            transition: isDragging ? "none" : "transform 0.2s cubic-bezier(0.25, 0.8, 0.25, 1)",
+            touchAction: "pan-y",
+            cursor: removing ? "wait" : "grab",
+          }}
+        >
+          <span
             style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "flex-end",
-              gap: 1,
-              minWidth: 0,
+              fontSize: 13,
+              fontWeight: 600,
+              color: "#f8fafc",
+              fontVariantNumeric: "tabular-nums",
             }}
           >
-            <span
-              style={{
-                fontSize: 13,
-                fontWeight: 600,
-                color: "#f8fafc",
-                fontVariantNumeric: "tabular-nums",
-              }}
-            >
-              {priceStr}
-            </span>
-            <span
-              style={{
-                fontSize: 11,
-                fontWeight: 500,
-                color: cp == null ? COLORS.muted : cp >= 0 ? COLORS.green : COLORS.red,
-                fontVariantNumeric: "tabular-nums",
-              }}
-            >
-              {cp == null ? "—" : `${cp >= 0 ? "+" : ""}${cp.toFixed(2)}%`}
-            </span>
-          </div>
+            {priceStr}
+          </span>
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 500,
+              color: cp == null ? COLORS.muted : cp >= 0 ? COLORS.green : COLORS.red,
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            {cp == null ? "—" : `${cp >= 0 ? "+" : ""}${cp.toFixed(2)}%`}
+          </span>
         </div>
-      </Link>
+      </div>
     </div>
   );
 }

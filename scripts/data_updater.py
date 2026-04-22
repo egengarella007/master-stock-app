@@ -11,6 +11,7 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 
@@ -41,6 +42,34 @@ HEADERS = {
 }
 
 FETCH_INTERVAL = 5
+# Seconds between checks when NYSE regular session is closed.
+CLOSED_POLL_INTERVAL = 60
+
+NYSE_TZ = ZoneInfo("America/New_York")
+# Regular session only (Mon–Fri 09:30–16:00 ET). Does not model exchange holidays.
+NYSE_OPEN_MIN = 9 * 60 + 30
+NYSE_CLOSE_MIN = 16 * 60
+
+
+def nyse_regular_session_open(now_utc: datetime | None = None) -> bool:
+    """True during NYSE regular hours in America/New_York (DST-aware)."""
+    if now_utc is None:
+        now_utc = datetime.now(timezone.utc)
+    elif now_utc.tzinfo is None:
+        now_utc = now_utc.replace(tzinfo=timezone.utc)
+    et = now_utc.astimezone(NYSE_TZ)
+    if et.weekday() >= 5:
+        return False
+    mins = et.hour * 60 + et.minute
+    return NYSE_OPEN_MIN <= mins < NYSE_CLOSE_MIN
+
+
+def _ignore_market_hours() -> bool:
+    return (os.environ.get("UPDATER_IGNORE_MARKET_HOURS") or "").strip() in (
+        "1",
+        "true",
+        "yes",
+    )
 
 
 def _safe_numeric(v: object) -> object | None:
@@ -396,8 +425,24 @@ def print_data(data: dict) -> None:
 def main() -> None:
     print("[updater] 🚀 starting stock data updater")
     print(f"[updater] checking for new/stale stocks every {FETCH_INTERVAL}s")
+    if _ignore_market_hours():
+        print("[updater] ⚙️ UPDATER_IGNORE_MARKET_HOURS set — will scrape outside NYSE hours")
+    else:
+        print(
+            "[updater] ⏸️ scrapes only during NYSE regular session "
+            "(Mon–Fri 09:30–16:00 America/New_York; holidays not modeled)"
+        )
 
     while True:
+        if not _ignore_market_hours() and not nyse_regular_session_open():
+            et = datetime.now(timezone.utc).astimezone(NYSE_TZ)
+            print(
+                f"[updater] 🌙 NYSE closed (now {et.strftime('%a %Y-%m-%d %H:%M %Z')}) "
+                f"— sleeping {CLOSED_POLL_INTERVAL}s"
+            )
+            time.sleep(CLOSED_POLL_INTERVAL)
+            continue
+
         symbol = get_next_symbol()
 
         if not symbol:

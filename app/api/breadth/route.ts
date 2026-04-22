@@ -2,6 +2,13 @@ import { NextResponse } from "next/server";
 
 import { getSupabaseService } from "@/lib/supabase-service";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+const NO_CACHE = {
+  "Cache-Control": "no-store, no-cache, must-revalidate",
+} as const;
+
 export async function GET() {
   try {
     const supabase = getSupabaseService();
@@ -14,10 +21,13 @@ export async function GET() {
       .maybeSingle();
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json(
+        { error: error.message },
+        { status: 500, headers: NO_CACHE },
+      );
     }
 
-    return NextResponse.json(
+    const payload =
       data ?? {
         advancing: null,
         declining: null,
@@ -26,10 +36,11 @@ export async function GET() {
         above_sma50_pct: null,
         above_sma200_pct: null,
         updated_at: null,
-      },
-    );
+      };
+
+    return NextResponse.json(payload, { headers: NO_CACHE });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500, headers: NO_CACHE });
   }
 }

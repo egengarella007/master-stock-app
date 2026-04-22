@@ -19,8 +19,10 @@ type BreadthState = {
   updated_at: string | null;
 };
 
-function dash(n: number | null | undefined): string {
-  return n == null || Number.isNaN(n) ? "—" : String(n);
+const fmt = (n: number) => n.toLocaleString();
+
+function pctLabel(pct: string): string {
+  return pct === "—" ? "—" : `${pct}%`;
 }
 
 function SplitBarRow({
@@ -197,6 +199,20 @@ export function MarketIndexes() {
   const hiN = hi == null ? 0 : Math.max(0, hi);
   const loN = lo == null ? 0 : Math.max(0, lo);
 
+  const total = (breadth?.advancing ?? 0) + (breadth?.declining ?? 0);
+  const advPct = total > 0 ? ((breadth?.advancing ?? 0) / total * 100).toFixed(1) : "—";
+  const decPct = total > 0 ? ((breadth?.declining ?? 0) / total * 100).toFixed(1) : "—";
+
+  const totalHiLo = (breadth?.new_highs ?? 0) + (breadth?.new_lows ?? 0);
+  const hiPct = totalHiLo > 0 ? ((breadth?.new_highs ?? 0) / totalHiLo * 100).toFixed(1) : "—";
+  const loPct = totalHiLo > 0 ? ((breadth?.new_lows ?? 0) / totalHiLo * 100).toFixed(1) : "—";
+
+  const advDeclLeft = `Advancing ${pctLabel(advPct)} (${adv != null ? fmt(adv) : "—"})`;
+  const advDeclRight = `${dec != null ? fmt(dec) : "—"} (${pctLabel(decPct)}) Declining`;
+
+  const hiLoLeft = `New High ${pctLabel(hiPct)} (${hi != null ? fmt(hi) : "—"})`;
+  const hiLoRight = `(${lo != null ? fmt(lo) : "—"}) ${pctLabel(loPct)} New Low`;
+
   let updatedLabel = "—";
   if (breadth?.updated_at) {
     try {
@@ -326,14 +342,14 @@ export function MarketIndexes() {
             }}
           >
             <SplitBarRow
-              leftLabel={`Advancing ${dash(adv)}`}
-              rightLabel={`${dash(dec)} Declining`}
+              leftLabel={advDeclLeft}
+              rightLabel={advDeclRight}
               leftVal={advN}
               rightVal={decN}
             />
             <SplitBarRow
-              leftLabel={`New Highs ${dash(hi)}`}
-              rightLabel={`${dash(lo)} New Lows`}
+              leftLabel={hiLoLeft}
+              rightLabel={hiLoRight}
               leftVal={hiN}
               rightVal={loN}
             />

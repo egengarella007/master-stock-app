@@ -44,23 +44,7 @@ export function AddSymbolForm() {
     }
     setSubmitting(true);
     try {
-      const listRes = await fetch("/api/watchlist", { cache: "no-store" });
-      if (!listRes.ok) {
-        const body = (await listRes.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error ?? "Could not load watchlist");
-      }
-      const listJson = (await listRes.json()) as { items?: { symbol: string }[] };
-      const items = listJson.items ?? [];
-      const already = items.some((r) => r.symbol === sym);
-
-      if (already) {
-        setValue("");
-        window.dispatchEvent(new Event("eg-watchlist-refresh"));
-        router.refresh();
-        router.push(hrefForSymbol(sym));
-        return;
-      }
-
+      // Single round-trip: POST uses upsert, so existing symbols stay idempotent.
       const res = await fetch("/api/watchlist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

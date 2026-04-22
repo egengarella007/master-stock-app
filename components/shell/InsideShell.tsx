@@ -12,10 +12,13 @@ export function InsideShell({ children }: { children: React.ReactNode }) {
   return (
     <div
       style={{
-        minHeight: "100vh",
+        height: "100dvh",
+        minHeight: "100dvh",
+        maxHeight: "100dvh",
         background: COLORS.bg,
         fontFamily: FONT,
         display: "flex",
+        overflow: "hidden",
       }}
     >
       <Sidebar />
@@ -25,9 +28,11 @@ export function InsideShell({ children }: { children: React.ReactNode }) {
           display: "flex",
           flexDirection: "column",
           minWidth: 0,
+          minHeight: 0,
+          overflow: "auto",
         }}
       >
-        <div style={{ flex: 1, padding: 20 }}>{children}</div>
+        <div style={{ flex: 1, minHeight: 0, padding: 20 }}>{children}</div>
       </div>
     </div>
   );

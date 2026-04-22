@@ -3,6 +3,7 @@
 import { Suspense, useCallback, useState } from "react";
 import { AddSymbolForm } from "@/components/watchlist/AddSymbolForm";
 import { WatchlistList } from "@/components/watchlist/WatchlistList";
+import { MarketSidebar } from "@/components/shell/MarketSidebar";
 
 const COLORS = {
   sidebar: "#12131f",
@@ -12,8 +13,11 @@ const COLORS = {
 };
 
 const FONT = "system-ui, -apple-system, sans-serif";
-const EXPANDED_W = 160;
-const COLLAPSED_W = 40;
+/** Total rail width when expanded (list + vertical collapse handle). */
+const EXPANDED_W = 200;
+/** Narrow strip for ▶ / ◀, aligned with collapsed rail width. */
+const HANDLE_W = 40;
+const COLLAPSED_W = HANDLE_W;
 
 export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
@@ -26,12 +30,13 @@ export function Sidebar() {
       style={{
         width: collapsed ? COLLAPSED_W : EXPANDED_W,
         flexShrink: 0,
+        minHeight: 0,
+        alignSelf: "stretch",
         borderRight: `1px solid ${COLORS.border}`,
         background: COLORS.sidebar,
         display: "flex",
-        flexDirection: "column",
+        flexDirection: collapsed ? "column" : "row",
         fontFamily: FONT,
-        minHeight: "100vh",
         transition: "width 0.15s ease",
         overflow: "hidden",
       }}
@@ -61,54 +66,64 @@ export function Sidebar() {
         <>
           <div
             style={{
+              flex: 1,
+              minWidth: 0,
               display: "flex",
-              gap: 6,
-              alignItems: "center",
-              padding: "6px 8px",
-              borderBottom: `1px solid ${COLORS.border}`,
+              flexDirection: "column",
+              minHeight: 0,
             }}
           >
-            <button
-              type="button"
-              onClick={collapse}
-              aria-label="Collapse watchlist"
+            <div
               style={{
-                width: 28,
-                height: 32,
                 flexShrink: 0,
-                borderRadius: 4,
-                border: `1px solid ${COLORS.border}`,
-                background: "rgba(255,255,255,0.04)",
-                color: COLORS.text,
-                cursor: "pointer",
-                fontSize: 14,
-                lineHeight: 1,
-                padding: 0,
-                display: "grid",
-                placeItems: "center",
+                borderBottom: `1px solid ${COLORS.border}`,
               }}
             >
-              ◀
-            </button>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <AddSymbolForm />
+              <div style={{ padding: "8px 8px 6px" }}>
+                <MarketSidebar />
+              </div>
+              <div style={{ padding: "6px 8px 8px" }}>
+                <AddSymbolForm />
+              </div>
+            </div>
+            <div
+              className="watchlist-sidebar-scroll"
+              style={{
+                flex: 1,
+                minHeight: 0,
+                overflowY: "auto",
+                scrollbarWidth: "none",
+              }}
+            >
+              <Suspense
+                fallback={<div style={{ padding: 8, color: COLORS.muted, fontSize: 11 }}>Loading…</div>}
+              >
+                <WatchlistList />
+              </Suspense>
             </div>
           </div>
-          <div
-            className="watchlist-sidebar-scroll"
+          <button
+            type="button"
+            onClick={collapse}
+            aria-label="Collapse watchlist"
             style={{
-              flex: 1,
+              width: HANDLE_W,
+              flexShrink: 0,
+              alignSelf: "stretch",
               minHeight: 0,
-              overflowY: "auto",
-              scrollbarWidth: "none",
+              border: "none",
+              borderLeft: `1px solid ${COLORS.border}`,
+              background: "transparent",
+              color: COLORS.muted,
+              cursor: "pointer",
+              display: "grid",
+              placeItems: "center",
+              fontSize: 16,
+              padding: 0,
             }}
           >
-            <Suspense
-              fallback={<div style={{ padding: 8, color: COLORS.muted, fontSize: 11 }}>Loading…</div>}
-            >
-              <WatchlistList />
-            </Suspense>
-          </div>
+            ◀
+          </button>
         </>
       )}
     </aside>

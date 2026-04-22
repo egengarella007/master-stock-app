@@ -1,6 +1,7 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useRef } from "react";
 import { useWatchlist } from "@/hooks/useWatchlist";
 import { WatchlistRow } from "@/components/watchlist/WatchlistRow";
 import { ErrorBanner } from "@/components/shared/ErrorBanner";
@@ -24,10 +25,60 @@ function ThinSkeleton() {
   );
 }
 
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return Boolean(
+    target.closest("input, textarea, select, [contenteditable=true], [role='textbox']"),
+  );
+}
+
 export function WatchlistList() {
+  const router = useRouter();
   const { items, loading, error } = useWatchlist();
   const searchParams = useSearchParams();
   const selected = (searchParams.get("symbol") ?? "").toUpperCase();
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const deleteInFlight = useRef(false);
+
+  const removeSelected = useCallback(async () => {
+    const sym = selected;
+    if (!sym || deleteInFlight.current) return;
+    if (!itemsRef.current.some((i) => i.symbol.toUpperCase() === sym)) return;
+    deleteInFlight.current = true;
+    try {
+      const res = await fetch("/api/watchlist", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbol: sym }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? "Failed to remove");
+      }
+      window.dispatchEvent(new Event("eg-watchlist-refresh"));
+      router.push("/inside/home");
+      router.refresh();
+    } catch {
+      /* ignore — could toast later */
+    } finally {
+      deleteInFlight.current = false;
+    }
+  }, [router, selected]);
+
+  useEffect(() => {
+    if (!selected) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Delete") return;
+      if (isEditableTarget(e.target)) return;
+      e.preventDefault();
+      void removeSelected();
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [removeSelected, selected]);
 
   if (error) {
     return <ErrorBanner message={error} />;

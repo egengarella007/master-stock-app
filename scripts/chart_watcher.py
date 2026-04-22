@@ -180,71 +180,83 @@ def capture_finviz_chart_png(symbol: str, period: str) -> bytes:
 
     url = f"https://finviz.com/quote.ashx?t={symbol}&p={p}"
 
-    with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True)
-        context = browser.new_context(
-            viewport={"width": 1920, "height": 1080},
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            ),
-        )
-        context.add_cookies(
-            [
-                {
-                    "name": "theme",
-                    "value": "dark",
-                    "domain": ".finviz.com",
-                    "path": "/",
-                }
-            ]
-        )
-        page = context.new_page()
-        page.set_default_timeout(30_000)
-
+    last_error: Optional[BaseException] = None
+    for attempt in range(2):  # retry once on failure
         try:
-            page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+            with sync_playwright() as pw:
+                browser = pw.chromium.launch(headless=True)
+                context = browser.new_context(
+                    viewport={"width": 1920, "height": 1080},
+                    user_agent=(
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/120.0.0.0 Safari/537.36"
+                    ),
+                )
+                context.add_cookies(
+                    [
+                        {
+                            "name": "theme",
+                            "value": "dark",
+                            "domain": ".finviz.com",
+                            "path": "/",
+                        }
+                    ]
+                )
+                page = context.new_page()
+                page.set_default_timeout(60_000)
 
-            try:
-                page.wait_for_selector(".canvas.outline-none", timeout=15_000)
-            except Exception:
-                pass
+                try:
+                    page.goto(url, wait_until="domcontentloaded", timeout=60_000)
 
-            page.wait_for_timeout(4000)
+                    try:
+                        page.wait_for_selector(".canvas.outline-none", timeout=20_000)
+                    except Exception:
+                        pass
 
-            data_url = page.evaluate(
-                """() => {
-                const nodes = Array.from(
-                    document.querySelectorAll('.canvas.outline-none')
-                );
-                for (const container of nodes) {
-                    const canvases = container.querySelectorAll('canvas');
-                    if (!canvases.length) continue;
-                    const scale = 3;
-                    const w = canvases[0].width;
-                    const h = canvases[0].height;
-                    const ec = document.createElement('canvas');
-                    ec.width = w * scale;
-                    ec.height = h * scale;
-                    const ctx = ec.getContext('2d');
-                    ctx.scale(scale, scale);
-                    ctx.fillStyle = '#1b1b1b';
-                    ctx.fillRect(0, 0, w, h);
-                    canvases.forEach(c => ctx.drawImage(c, 0, 0));
-                    return ec.toDataURL('image/png', 1.0);
-                }
-                return null;
-            }"""
+                    page.wait_for_timeout(4000)
+
+                    data_url = page.evaluate(
+                        """() => {
+                        const nodes = Array.from(
+                            document.querySelectorAll('.canvas.outline-none')
+                        );
+                        for (const container of nodes) {
+                            const canvases = container.querySelectorAll('canvas');
+                            if (!canvases.length) continue;
+                            const scale = 3;
+                            const w = canvases[0].width;
+                            const h = canvases[0].height;
+                            const ec = document.createElement('canvas');
+                            ec.width = w * scale;
+                            ec.height = h * scale;
+                            const ctx = ec.getContext('2d');
+                            ctx.scale(scale, scale);
+                            ctx.fillStyle = '#1b1b1b';
+                            ctx.fillRect(0, 0, w, h);
+                            canvases.forEach(c => ctx.drawImage(c, 0, 0));
+                            return ec.toDataURL('image/png', 1.0);
+                        }
+                        return null;
+                    }"""
+                    )
+
+                    if not data_url:
+                        raise RuntimeError(f"no canvas found for {symbol} {period}")
+
+                    return base64.b64decode(data_url.split(",", 1)[1])
+                finally:
+                    context.close()
+                    browser.close()
+        except Exception as e:
+            last_error = e
+            print(
+                f"[chart_watcher] ⚠️ attempt {attempt + 1} failed for {symbol} {period}: {e}",
+                flush=True,
             )
+            time.sleep(3)
 
-            if not data_url:
-                raise RuntimeError(f"no canvas found for {symbol} {period}")
-
-            return base64.b64decode(data_url.split(",", 1)[1])
-        finally:
-            context.close()
-            browser.close()
+    raise RuntimeError(f"failed after 2 attempts: {last_error}")
 
 
 def capture_period_worker(args: Tuple[str, str]) -> Tuple[str, bytes]:

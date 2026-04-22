@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { getSupabaseBrowser } from "@/lib/supabase";
 import type { WatchlistRecord } from "@/lib/types";
@@ -10,6 +10,38 @@ import type { WatchlistRecord } from "@/lib/types";
  * Primary updates come from Supabase Realtime on `public.watchlist`.
  */
 const FALLBACK_POLL_MS = 30_000;
+
+function toMillis(ts: string | null | undefined): number {
+  if (!ts) return 0;
+  const ms = Date.parse(ts);
+  return Number.isNaN(ms) ? 0 : ms;
+}
+
+function isPending(row: WatchlistRecord): boolean {
+  return row.price == null || row.change_percent == null;
+}
+
+function sortWatchlist(rows: WatchlistRecord[]): WatchlistRecord[] {
+  return [...rows].sort((a, b) => {
+    const aPending = isPending(a);
+    const bPending = isPending(b);
+    if (aPending !== bPending) return aPending ? -1 : 1;
+
+    // Pending rows stay at the top, newest first, until populated.
+    if (aPending && bPending) {
+      const byAdded = toMillis(b.added_at) - toMillis(a.added_at);
+      if (byAdded !== 0) return byAdded;
+    } else {
+      // Populated rows continue to rank by strongest percentage change first.
+      const aCp = a.change_percent ?? Number.NEGATIVE_INFINITY;
+      const bCp = b.change_percent ?? Number.NEGATIVE_INFINITY;
+      const byCp = bCp - aCp;
+      if (byCp !== 0) return byCp;
+    }
+
+    return a.symbol.localeCompare(b.symbol);
+  });
+}
 
 /**
  * Loads watchlist from Supabase.
@@ -43,7 +75,7 @@ export function useWatchlist() {
       setLoading(false);
       return;
     }
-    setItems((data ?? []) as WatchlistRecord[]);
+    setItems(sortWatchlist((data ?? []) as WatchlistRecord[]));
     setLoading(false);
   }, []);
 

@@ -1,10 +1,12 @@
 "use client"
-import { useSelectedSymbol } from "@/lib/SelectedSymbolContext"
+import { useSearchParams } from "next/navigation"
+import { Suspense } from "react"
 import { MarketIndexes } from "./components/MarketIndexes"
 import { StockChartCard } from "./components/StockChartCard"
 
-export default function HomePage() {
-  const { selectedSymbol } = useSelectedSymbol()
+function HomeContent() {
+  const searchParams = useSearchParams()
+  const selectedSymbol = searchParams.get("symbol")
 
   return (
     <div style={{ background: "#0e0f1a", minHeight: "100%", paddingBottom: 32 }}>
@@ -22,5 +24,13 @@ export default function HomePage() {
         </div>
       )}
     </div>
+  )
+}
+
+export default function HomePage() {
+  return (
+    <Suspense>
+      <HomeContent />
+    </Suspense>
   )
 }

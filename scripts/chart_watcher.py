@@ -337,9 +337,9 @@ def capture_index_charts() -> None:
     print("[chart_watcher] 📸 capturing index charts...")
 
     charts = [
-        ("nasdaq", '[data-testid="chart-0-pane-0-canvas"] canvas'),
-        ("sp500", '[data-testid="chart-1-pane-0-canvas"] canvas'),
-        ("dow", '[data-testid="chart-2-pane-0-canvas"] canvas'),
+        ("nasdaq", '[data-testid="chart-0-quote-NASDAQ"] canvas'),
+        ("sp500", '[data-testid="chart-0-quote-S&P 500"] canvas'),
+        ("dow", '[data-testid="chart-0-quote-DOW"] canvas'),
     ]
 
     with sync_playwright() as pw:
@@ -368,7 +368,7 @@ def capture_index_charts() -> None:
             page.goto("https://finviz.com/", wait_until="domcontentloaded", timeout=30_000)
             try:
                 page.wait_for_selector(
-                    '[data-testid="chart-0-pane-0-canvas"] canvas',
+                    '[data-testid="chart-0-quote-NASDAQ"] canvas',
                     timeout=15_000,
                 )
             except Exception:

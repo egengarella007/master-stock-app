@@ -79,101 +79,110 @@ function parseNumericField(raw: string | null): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function Week52RangeBar({
-  lowRaw,
-  highRaw,
-  price,
-}: {
-  lowRaw: string | null;
-  highRaw: string | null;
-  price: number | null;
-}) {
-  const low = parseNumericField(lowRaw);
-  const high = parseNumericField(highRaw);
-  const rangeOk =
-    low != null && high != null && high > low && Number.isFinite(low) && Number.isFinite(high);
+/** 52-week range bar: upside to high / downside to low + gradient fill to price. */
+function Week52RangeCard({ data }: { data: StockData }) {
+  const price = data.price;
+  const high = parseNumericField(data.high_52w);
+  const low = parseNumericField(data.low_52w);
 
-  if (!rangeOk) {
-    return (
-      <div style={{ fontSize: 13, color: "#64748b", padding: "8px 0" }}>
-        52-week high/low unavailable
-      </div>
-    );
+  if (
+    price == null ||
+    !Number.isFinite(price) ||
+    high == null ||
+    low == null ||
+    high <= low
+  ) {
+    return null;
   }
 
-  const loN = low as number;
-  const hiN = high as number;
-  let pct = 0;
-  const hasPrice = price != null && Number.isFinite(price);
-  if (hasPrice) {
-    pct = ((price as number) - loN) / (hiN - loN);
-    pct = Math.max(0, Math.min(1, pct)) * 100;
-  }
-
-  const trackBg = "rgba(148,163,184,0.14)";
+  const position = ((price - low) / (high - low)) * 100;
+  const upsidePct = (((high - price) / price) * 100).toFixed(1);
+  const downsidePct = (((price - low) / price) * 100).toFixed(1);
 
   return (
-    <div>
+    <div style={{ ...card, marginBottom: 16 }}>
+      <div style={sectionTitle}>52 Week Range</div>
+
       <div
         style={{
           display: "flex",
           justifyContent: "space-between",
-          alignItems: "flex-end",
           marginBottom: 8,
-          gap: 12,
         }}
       >
-        <div>
-          <div style={{ ...label, marginBottom: 2 }}>52W Low</div>
-          <div style={{ ...value, fontSize: 15 }}>{lowRaw ?? "—"}</div>
-        </div>
-        {hasPrice ? (
-          <div style={{ textAlign: "center", flex: "1 1 auto", minWidth: 0 }}>
-            <div style={{ ...label, marginBottom: 2 }}>Price</div>
-            <div style={{ ...value, fontSize: 15, color: "#a855f7" }}>
-              $
-              {(price as number).toLocaleString("en-US", {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}
-            </div>
+        <div style={{ textAlign: "left" }}>
+          <div style={{ fontSize: 11, color: "#94a3b8" }}>Downside to 52W Low</div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: "#f87171" }}>
+            -{downsidePct}%
           </div>
-        ) : (
-          <div style={{ flex: 1 }} />
-        )}
+          <div style={{ fontSize: 11, color: "#64748b" }}>${low.toFixed(2)}</div>
+        </div>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 11, color: "#94a3b8" }}>Current</div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: "#f8fafc" }}>
+            $
+            {price.toLocaleString("en-US", {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}
+          </div>
+        </div>
         <div style={{ textAlign: "right" }}>
-          <div style={{ ...label, marginBottom: 2 }}>52W High</div>
-          <div style={{ ...value, fontSize: 15 }}>{highRaw ?? "—"}</div>
+          <div style={{ fontSize: 11, color: "#94a3b8" }}>Upside to 52W High</div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: "#34d399" }}>
+            +{upsidePct}%
+          </div>
+          <div style={{ fontSize: 11, color: "#64748b" }}>${high.toFixed(2)}</div>
         </div>
       </div>
 
       <div
         style={{
           position: "relative",
-          height: 10,
-          borderRadius: 5,
-          background: trackBg,
-          border: "1px solid rgba(148,163,184,0.2)",
+          height: 6,
+          borderRadius: 3,
+          background: "rgba(148,163,184,0.15)",
         }}
       >
-        {hasPrice ? (
-          <div
-            style={{
-              position: "absolute",
-              left: `${pct}%`,
-              top: "50%",
-              transform: "translate(-50%, -50%)",
-              width: 14,
-              height: 14,
-              borderRadius: "50%",
-              background: "#a855f7",
-              border: "2px solid #f8fafc",
-              boxShadow: "0 1px 4px rgba(0,0,0,0.45)",
-              zIndex: 1,
-            }}
-            title={`Within 52w range (${pct.toFixed(0)}% from low to high)`}
-          />
-        ) : null}
+        <div
+          style={{
+            position: "absolute",
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: `${Math.min(100, Math.max(0, position))}%`,
+            borderRadius: 3,
+            background: "linear-gradient(90deg, #f87171, #34d399)",
+          }}
+        />
+        <div
+          style={{
+            position: "absolute",
+            top: "50%",
+            left: `${Math.min(98, Math.max(2, position))}%`,
+            transform: "translate(-50%, -50%)",
+            width: 12,
+            height: 12,
+            borderRadius: "50%",
+            background: "#f8fafc",
+            border: "2px solid #0e0f1a",
+            boxShadow: "0 0 4px rgba(255,255,255,0.4)",
+            zIndex: 1,
+          }}
+        />
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          marginTop: 6,
+          fontSize: 10,
+          color: "#64748b",
+        }}
+      >
+        <span>52W Low</span>
+        <span>52W High</span>
       </div>
     </div>
   );
@@ -274,14 +283,7 @@ export function StockStats({ symbol }: { symbol: string }) {
 
   return (
     <div>
-      <div style={{ ...card, marginBottom: 16 }}>
-        <div style={sectionTitle}>52-week range</div>
-        <Week52RangeBar
-          lowRaw={data.low_52w}
-          highRaw={data.high_52w}
-          price={data.price}
-        />
-      </div>
+      <Week52RangeCard data={data} />
 
       <div
         style={{

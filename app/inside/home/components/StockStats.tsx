@@ -237,15 +237,6 @@ function isStockData(d: unknown): d is StockData {
   );
 }
 
-const pollBox = {
-  background: "rgba(255,255,255,0.04)",
-  border: "1px solid rgba(148,163,184,0.14)",
-  borderRadius: 10,
-  padding: 32,
-  marginBottom: 16,
-  textAlign: "center" as const,
-};
-
 export function StockStats({ symbol }: { symbol: string }) {
   const [data, setData] = useState<StockData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -282,7 +273,7 @@ export function StockStats({ symbol }: { symbol: string }) {
 
         if (!isStockData(json)) return;
 
-        const hasData = json.price != null || json.sma20_pct != null;
+        const hasData = json.price != null;
 
         if (cancelled) return;
 
@@ -308,29 +299,11 @@ export function StockStats({ symbol }: { symbol: string }) {
     };
   }, [symbol]);
 
-  const symU = symbol.toUpperCase();
-
   if (loading && !data) {
     return (
-      <div style={pollBox}>
-        <div style={{ color: "#94a3b8", fontSize: 13, marginBottom: 8 }}>
-          Fetching data for {symU}...
-        </div>
-        <div style={{ color: "#64748b", fontSize: 11 }}>
-          This may take a few seconds
-        </div>
-      </div>
-    );
-  }
-
-  if (data && data.price == null && data.sma20_pct == null) {
-    return (
-      <div style={pollBox}>
-        <div style={{ color: "#94a3b8", fontSize: 13, marginBottom: 8 }}>
-          ⏳ Waiting for {symU} data...
-        </div>
-        <div style={{ color: "#64748b", fontSize: 11 }}>
-          Data updater is fetching from Finviz
+      <div style={{ ...card, textAlign: "center", padding: 32 }}>
+        <div style={{ color: "#94a3b8", fontSize: 13 }}>
+          Fetching data for {symbol}...
         </div>
       </div>
     );

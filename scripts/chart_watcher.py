@@ -327,6 +327,12 @@ def process_symbol(symbol: str) -> None:
 def capture_index_charts() -> None:
     print("[chart_watcher] 📸 capturing index charts...")
 
+    charts = [
+        ("dow", '[data-testid="chart-0-pane-0-canvas"] canvas'),
+        ("nasdaq", '[data-testid="chart-1-pane-0-canvas"] canvas'),
+        ("sp500", '[data-testid="chart-2-pane-0-canvas"] canvas'),
+    ]
+
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True)
         context = browser.new_context(
@@ -353,32 +359,22 @@ def capture_index_charts() -> None:
             page.goto("https://finviz.com/", wait_until="domcontentloaded", timeout=30_000)
             try:
                 page.wait_for_selector(
-                    "xpath=//*[@id='chart-layout-c-0']/div/div[2]/div/div/canvas",
+                    '[data-testid="chart-0-pane-0-canvas"] canvas',
                     timeout=15_000,
                 )
             except Exception:
                 pass
             page.wait_for_timeout(4000)
 
-            charts = [
-                ("dow", "//*[@id='chart-layout-c-0']/div/div[2]/div/div/canvas"),
-                ("nasdaq", "//*[@id='chart-layout-c-1']/div/div[2]/div/div/canvas"),
-                ("sp500", "//*[@id='chart-layout-c-2']/div/div[2]/div/div/canvas"),
-            ]
-
-            for name, xpath in charts:
+            for name, selector in charts:
                 try:
-                    _ = page.locator(f"xpath={xpath}").first
+                    page.locator(selector).first.wait_for(
+                        state="attached", timeout=10_000
+                    )
 
                     data_url = page.evaluate(
-                        """(xp) => {
-                        const el = document.evaluate(
-                            xp,
-                            document,
-                            null,
-                            XPathResult.FIRST_ORDERED_NODE_TYPE,
-                            null
-                        ).singleNodeValue;
+                        """(selector) => {
+                        const el = document.querySelector(selector);
                         if (!el) return null;
 
                         const container = el.closest('.canvas-wrap') || el.parentElement;
@@ -393,13 +389,14 @@ def capture_index_charts() -> None:
                         ec.width = w * scale;
                         ec.height = h * scale;
                         const ctx = ec.getContext('2d');
+                        if (!ctx) return null;
                         ctx.scale(scale, scale);
                         ctx.fillStyle = '#1b1b1b';
                         ctx.fillRect(0, 0, w, h);
                         canvases.forEach((c) => ctx.drawImage(c, 0, 0));
                         return ec.toDataURL('image/png', 1.0);
                     }""",
-                        xpath,
+                        selector,
                     )
 
                     if data_url and data_url.startswith("data:image/png"):
@@ -416,6 +413,7 @@ def capture_index_charts() -> None:
                 except Exception as e:
                     print(f"[chart_watcher] ❌ index {name}: {e}")
         finally:
+            context.close()
             browser.close()
 
 

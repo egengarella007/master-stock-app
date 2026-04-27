@@ -237,49 +237,101 @@ function isStockData(d: unknown): d is StockData {
   );
 }
 
+const pollBox = {
+  background: "rgba(255,255,255,0.04)",
+  border: "1px solid rgba(148,163,184,0.14)",
+  borderRadius: 10,
+  padding: 32,
+  marginBottom: 16,
+  textAlign: "center" as const,
+};
+
 export function StockStats({ symbol }: { symbol: string }) {
   const [data, setData] = useState<StockData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    void (async () => {
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    const stopPolling = () => {
+      if (intervalId != null) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
+
+    const fetchData = async () => {
       try {
-        const r = await fetch(
+        const res = await fetch(
           `/api/stock/${encodeURIComponent(symbol)}`,
           { cache: "no-store" },
         );
-        const d: unknown = await r.json();
+        if (!res.ok) return;
+
+        const json: unknown = await res.json();
         if (cancelled) return;
-        if (!r.ok || !isStockData(d)) {
-          setData(null);
-        } else {
-          setData(d);
+        if (
+          typeof json === "object" &&
+          json !== null &&
+          "error" in json &&
+          typeof (json as { error?: string }).error === "string"
+        ) {
+          return;
+        }
+
+        if (!isStockData(json)) return;
+
+        const hasData = json.price != null || json.sma20_pct != null;
+
+        if (cancelled) return;
+
+        setData(json);
+        setLoading(false);
+
+        if (hasData) {
+          stopPolling();
         }
       } catch {
-        if (!cancelled) setData(null);
-      } finally {
         if (!cancelled) setLoading(false);
       }
-    })();
+    };
+
+    setLoading(true);
+    setData(null);
+    intervalId = setInterval(() => void fetchData(), 3000);
+    void fetchData();
+
     return () => {
       cancelled = true;
+      stopPolling();
     };
   }, [symbol]);
 
-  if (loading) {
+  const symU = symbol.toUpperCase();
+
+  if (loading && !data) {
     return (
-      <div
-        style={{
-          ...card,
-          color: "#94a3b8",
-          fontSize: 13,
-          textAlign: "center",
-          padding: 32,
-        }}
-      >
-        Loading...
+      <div style={pollBox}>
+        <div style={{ color: "#94a3b8", fontSize: 13, marginBottom: 8 }}>
+          Fetching data for {symU}...
+        </div>
+        <div style={{ color: "#64748b", fontSize: 11 }}>
+          This may take a few seconds
+        </div>
+      </div>
+    );
+  }
+
+  if (data && data.price == null && data.sma20_pct == null) {
+    return (
+      <div style={pollBox}>
+        <div style={{ color: "#94a3b8", fontSize: 13, marginBottom: 8 }}>
+          ⏳ Waiting for {symU} data...
+        </div>
+        <div style={{ color: "#64748b", fontSize: 11 }}>
+          Data updater is fetching from Finviz
+        </div>
       </div>
     );
   }

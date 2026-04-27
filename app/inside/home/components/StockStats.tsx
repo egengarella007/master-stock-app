@@ -69,6 +69,116 @@ function pctColor(val: string | null): string {
   return n >= 0 ? "#34d399" : "#f87171";
 }
 
+/** Parse Finviz-style numeric strings (commas, optional suffix). */
+function parseNumericField(raw: string | null): number | null {
+  if (!raw) return null;
+  const cleaned = raw.replace(/,/g, "").trim();
+  const m = cleaned.match(/^[-+]?\d*\.?\d+/);
+  if (!m) return null;
+  const n = parseFloat(m[0]);
+  return Number.isFinite(n) ? n : null;
+}
+
+function Week52RangeBar({
+  lowRaw,
+  highRaw,
+  price,
+}: {
+  lowRaw: string | null;
+  highRaw: string | null;
+  price: number | null;
+}) {
+  const low = parseNumericField(lowRaw);
+  const high = parseNumericField(highRaw);
+  const rangeOk =
+    low != null && high != null && high > low && Number.isFinite(low) && Number.isFinite(high);
+
+  if (!rangeOk) {
+    return (
+      <div style={{ fontSize: 13, color: "#64748b", padding: "8px 0" }}>
+        52-week high/low unavailable
+      </div>
+    );
+  }
+
+  const loN = low as number;
+  const hiN = high as number;
+  let pct = 0;
+  const hasPrice = price != null && Number.isFinite(price);
+  if (hasPrice) {
+    pct = ((price as number) - loN) / (hiN - loN);
+    pct = Math.max(0, Math.min(1, pct)) * 100;
+  }
+
+  const trackBg = "rgba(148,163,184,0.14)";
+
+  return (
+    <div>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-end",
+          marginBottom: 8,
+          gap: 12,
+        }}
+      >
+        <div>
+          <div style={{ ...label, marginBottom: 2 }}>52W Low</div>
+          <div style={{ ...value, fontSize: 15 }}>{lowRaw ?? "—"}</div>
+        </div>
+        {hasPrice ? (
+          <div style={{ textAlign: "center", flex: "1 1 auto", minWidth: 0 }}>
+            <div style={{ ...label, marginBottom: 2 }}>Price</div>
+            <div style={{ ...value, fontSize: 15, color: "#a855f7" }}>
+              $
+              {(price as number).toLocaleString("en-US", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </div>
+          </div>
+        ) : (
+          <div style={{ flex: 1 }} />
+        )}
+        <div style={{ textAlign: "right" }}>
+          <div style={{ ...label, marginBottom: 2 }}>52W High</div>
+          <div style={{ ...value, fontSize: 15 }}>{highRaw ?? "—"}</div>
+        </div>
+      </div>
+
+      <div
+        style={{
+          position: "relative",
+          height: 10,
+          borderRadius: 5,
+          background: trackBg,
+          border: "1px solid rgba(148,163,184,0.2)",
+        }}
+      >
+        {hasPrice ? (
+          <div
+            style={{
+              position: "absolute",
+              left: `${pct}%`,
+              top: "50%",
+              transform: "translate(-50%, -50%)",
+              width: 14,
+              height: 14,
+              borderRadius: "50%",
+              background: "#a855f7",
+              border: "2px solid #f8fafc",
+              boxShadow: "0 1px 4px rgba(0,0,0,0.45)",
+              zIndex: 1,
+            }}
+            title={`Within 52w range (${pct.toFixed(0)}% from low to high)`}
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function StatRow({
   label: l,
   value: v,
@@ -162,55 +272,15 @@ export function StockStats({ symbol }: { symbol: string }) {
 
   if (!data) return null;
 
-  const priceColor =
-    (data.change_percent ?? 0) >= 0 ? "#34d399" : "#f87171";
-
   return (
     <div>
-      <div style={{ ...card }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-          }}
-        >
-          <div>
-            <div style={{ fontSize: 32, fontWeight: 800, color: "#f8fafc" }}>
-              $
-              {data.price?.toLocaleString("en-US", {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              }) ?? "—"}
-            </div>
-            <div
-              style={{
-                fontSize: 16,
-                fontWeight: 600,
-                color: priceColor,
-                marginTop: 4,
-              }}
-            >
-              {data.change ?? "—"} (
-              {data.change_percent != null
-                ? `${data.change_percent >= 0 ? "+" : ""}${data.change_percent.toFixed(2)}%`
-                : "—"}
-              )
-            </div>
-          </div>
-          <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 11, color: "#94a3b8" }}>Volume</div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: "#f8fafc" }}>
-              {data.volume ?? "—"}
-            </div>
-            <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 8 }}>
-              Market Cap
-            </div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: "#f8fafc" }}>
-              {data.market_cap ?? "—"}
-            </div>
-          </div>
-        </div>
+      <div style={{ ...card, marginBottom: 16 }}>
+        <div style={sectionTitle}>52-week range</div>
+        <Week52RangeBar
+          lowRaw={data.low_52w}
+          highRaw={data.high_52w}
+          price={data.price}
+        />
       </div>
 
       <div
@@ -222,7 +292,7 @@ export function StockStats({ symbol }: { symbol: string }) {
         }}
       >
         <div style={{ ...card, marginBottom: 0 }}>
-          <div style={sectionTitle}>Technicals</div>
+          <div style={sectionTitle}>Moving averages</div>
           <StatRow
             label="SMA 20"
             value={data.sma20_pct}
@@ -238,12 +308,6 @@ export function StockStats({ symbol }: { symbol: string }) {
             value={data.sma200_pct}
             color={pctColor(data.sma200_pct)}
           />
-          <StatRow label="RSI (14)" value={data.rsi} />
-          <StatRow label="Beta" value={data.beta} />
-          <StatRow label="52W High" value={data.high_52w} />
-          <StatRow label="52W Low" value={data.low_52w} />
-          <StatRow label="Short Float" value={data.short_float} />
-          <StatRow label="Inst Own" value={data.inst_own} />
         </div>
 
         <div style={{ ...card, marginBottom: 0 }}>
@@ -274,6 +338,14 @@ export function StockStats({ symbol }: { symbol: string }) {
             color={pctColor(data.perf_year)}
           />
         </div>
+      </div>
+
+      <div style={{ ...card, marginBottom: 16 }}>
+        <div style={sectionTitle}>Technicals</div>
+        <StatRow label="RSI (14)" value={data.rsi} />
+        <StatRow label="Beta" value={data.beta} />
+        <StatRow label="Short Float" value={data.short_float} />
+        <StatRow label="Inst Own" value={data.inst_own} />
       </div>
 
       {data.analyst_action ? (

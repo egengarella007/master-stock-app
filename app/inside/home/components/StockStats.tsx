@@ -227,16 +227,6 @@ function StatRow({
   );
 }
 
-function isStockData(d: unknown): d is StockData {
-  return (
-    typeof d === "object" &&
-    d !== null &&
-    "symbol" in d &&
-    typeof (d as StockData).symbol === "string" &&
-    !("error" in d && typeof (d as { error?: string }).error === "string")
-  );
-}
-
 export function StockStats({ symbol }: { symbol: string }) {
   const [data, setData] = useState<StockData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -244,13 +234,6 @@ export function StockStats({ symbol }: { symbol: string }) {
   useEffect(() => {
     let cancelled = false;
     let intervalId: ReturnType<typeof setInterval> | null = null;
-
-    const stopPolling = () => {
-      if (intervalId != null) {
-        clearInterval(intervalId);
-        intervalId = null;
-      }
-    };
 
     const fetchData = async () => {
       try {
@@ -262,40 +245,37 @@ export function StockStats({ symbol }: { symbol: string }) {
 
         const json: unknown = await res.json();
         if (cancelled) return;
-        if (
-          typeof json === "object" &&
-          json !== null &&
-          "error" in json &&
-          typeof (json as { error?: string }).error === "string"
-        ) {
-          return;
-        }
 
-        if (!isStockData(json)) return;
+        if (typeof json !== "object" || json === null) return;
+        const row = json as Record<string, unknown>;
+        if (row.error) return;
+        if (typeof row.symbol !== "string" || !row.symbol) return;
 
-        const hasData = json.price != null;
+        if (!cancelled) {
+          setData(json as StockData);
+          setLoading(false);
 
-        if (cancelled) return;
-
-        setData(json);
-        setLoading(false);
-
-        if (hasData) {
-          stopPolling();
+          if (row.price != null && intervalId != null) {
+            clearInterval(intervalId);
+            intervalId = null;
+          }
         }
       } catch {
         if (!cancelled) setLoading(false);
       }
     };
 
-    setLoading(true);
     setData(null);
+    setLoading(true);
+
     intervalId = setInterval(() => void fetchData(), 3000);
     void fetchData();
 
     return () => {
       cancelled = true;
-      stopPolling();
+      if (intervalId != null) {
+        clearInterval(intervalId);
+      }
     };
   }, [symbol]);
 

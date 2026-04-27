@@ -96,6 +96,8 @@ function Week52RangeCard({ data }: { data: StockData }) {
   }
 
   const position = ((price - low) / (high - low)) * 100;
+  /** Same 0–100 value for fill and marker (do not clamp dot separately from fill). */
+  const positionPct = Math.min(100, Math.max(0, position));
   const upsidePct = (((high - price) / price) * 100).toFixed(1);
   const downsidePct = (((price - low) / price) * 100).toFixed(1);
 
@@ -136,40 +138,43 @@ function Week52RangeCard({ data }: { data: StockData }) {
         </div>
       </div>
 
-      <div
-        style={{
-          position: "relative",
-          height: 6,
-          borderRadius: 3,
-          background: "rgba(148,163,184,0.15)",
-        }}
-      >
+      {/* Horizontal inset so the marker can sit at 0%/100% without clipping */}
+      <div style={{ paddingLeft: 8, paddingRight: 8 }}>
         <div
           style={{
-            position: "absolute",
-            left: 0,
-            top: 0,
-            bottom: 0,
-            width: `${Math.min(100, Math.max(0, position))}%`,
+            position: "relative",
+            height: 6,
             borderRadius: 3,
-            background: "linear-gradient(90deg, #f87171, #34d399)",
+            background: "rgba(148,163,184,0.15)",
           }}
-        />
-        <div
-          style={{
-            position: "absolute",
-            top: "50%",
-            left: `${Math.min(98, Math.max(2, position))}%`,
-            transform: "translate(-50%, -50%)",
-            width: 12,
-            height: 12,
-            borderRadius: "50%",
-            background: "#f8fafc",
-            border: "2px solid #0e0f1a",
-            boxShadow: "0 0 4px rgba(255,255,255,0.4)",
-            zIndex: 1,
-          }}
-        />
+        >
+          <div
+            style={{
+              position: "absolute",
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: `${positionPct}%`,
+              borderRadius: 3,
+              background: "linear-gradient(90deg, #f87171, #34d399)",
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              top: "50%",
+              left: `${positionPct}%`,
+              transform: "translate(-50%, -50%)",
+              width: 12,
+              height: 12,
+              borderRadius: "50%",
+              background: "#f8fafc",
+              border: "2px solid #0e0f1a",
+              boxShadow: "0 0 4px rgba(255,255,255,0.4)",
+              zIndex: 1,
+            }}
+          />
+        </div>
       </div>
 
       <div

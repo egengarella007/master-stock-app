@@ -184,9 +184,9 @@ export function MarketIndexes() {
   const STORAGE_URL = mounted ? (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "") : "";
 
   const INDEX_CHARTS = [
-    { name: "nasdaq", label: "NASDAQ" },
-    { name: "sp500", label: "S&P 500" },
-    { name: "dow", label: "DOW" },
+    { name: "nasdaq", alt: "NASDAQ index chart" },
+    { name: "sp500", alt: "S&P 500 index chart" },
+    { name: "dow", alt: "Dow Jones index chart" },
   ];
 
   const adv = breadth?.advancing;
@@ -283,7 +283,7 @@ export function MarketIndexes() {
               WebkitOverflowScrolling: "touch",
             }}
           >
-            {INDEX_CHARTS.map(({ name, label }) => {
+            {INDEX_CHARTS.map(({ name, alt }) => {
               const base = STORAGE_URL
                 ? `${STORAGE_URL}/storage/v1/object/public/charts/index/${name}.png`
                 : "";
@@ -304,18 +304,6 @@ export function MarketIndexes() {
                 >
                   <div
                     style={{
-                      fontSize: 11,
-                      fontWeight: 600,
-                      letterSpacing: "0.06em",
-                      color: "#94a3b8",
-                      textTransform: "uppercase",
-                      marginBottom: 8,
-                    }}
-                  >
-                    {label}
-                  </div>
-                  <div
-                    style={{
                       position: "relative",
                       flex: 1,
                       minHeight: 140,
@@ -332,7 +320,7 @@ export function MarketIndexes() {
                     ) : (
                       <img
                         src={src}
-                        alt={`${label} index chart`}
+                        alt={alt}
                         style={{
                           width: "100%",
                           height: "100%",

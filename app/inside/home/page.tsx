@@ -3,6 +3,7 @@ import { useSearchParams } from "next/navigation"
 import { Suspense } from "react"
 import { MarketIndexes } from "./components/MarketIndexes"
 import { StockChartCard } from "./components/StockChartCard"
+import { StockStats } from "./components/StockStats"
 
 function HomeContent() {
   const searchParams = useSearchParams()
@@ -12,7 +13,10 @@ function HomeContent() {
     <div style={{ background: "#0e0f1a", minHeight: "100%", paddingBottom: 32 }}>
       <MarketIndexes />
       {selectedSymbol ? (
-        <StockChartCard symbol={selectedSymbol} />
+        <>
+          <StockChartCard symbol={selectedSymbol} />
+          <StockStats symbol={selectedSymbol} />
+        </>
       ) : (
         <div style={{
           color: "#94a3b8",

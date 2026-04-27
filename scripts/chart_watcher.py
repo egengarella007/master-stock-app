@@ -93,13 +93,22 @@ REST_HEADERS = {
 ET = ZoneInfo("America/New_York")
 
 
-def nyse_is_open() -> bool:
-    """True only during NYSE regular session Mon-Fri 9:30-16:00 ET."""
+def market_session_state() -> str:
+    """
+    Returns:
+      'open'     — regular session 9:30-16:00 ET
+      'cooldown' — 16:00-17:00 ET (1hr after close)
+      'closed'   — everything else
+    """
     now = datetime.now(ET)
-    if now.weekday() >= 5:  # Saturday=5, Sunday=6
-        return False
+    if now.weekday() >= 5:
+        return "closed"
     mins = now.hour * 60 + now.minute
-    return (9 * 60 + 30) <= mins < (16 * 60)
+    if 9 * 60 + 30 <= mins < 16 * 60:
+        return "open"
+    if 16 * 60 <= mins < 17 * 60:
+        return "cooldown"
+    return "closed"
 
 
 def iso_now() -> str:
@@ -328,9 +337,9 @@ def capture_index_charts() -> None:
     print("[chart_watcher] 📸 capturing index charts...")
 
     charts = [
-        ("dow", '[data-testid="chart-0-pane-0-canvas"] canvas'),
-        ("nasdaq", '[data-testid="chart-1-pane-0-canvas"] canvas'),
-        ("sp500", '[data-testid="chart-2-pane-0-canvas"] canvas'),
+        ("nasdaq", '[data-testid="chart-0-pane-0-canvas"] canvas'),
+        ("sp500", '[data-testid="chart-1-pane-0-canvas"] canvas'),
+        ("dow", '[data-testid="chart-2-pane-0-canvas"] canvas'),
     ]
 
     with sync_playwright() as pw:
@@ -422,14 +431,16 @@ def main() -> None:
     print("[chart_watcher] 🚀 starting chart watcher", flush=True)
     print(f"[chart_watcher] Supabase: {SUPABASE_URL}", flush=True)
     print(
-        "[chart_watcher] 📈 captures run during NYSE hours only (Mon-Fri 9:30-16:00 ET)",
+        "[chart_watcher] 📈 Mon–Fri: full rotation 09:30–17:00 ET (session + 1h cooldown); "
+        "otherwise new symbols only; index charts only during open/cooldown.",
         flush=True,
     )
 
     last_index_capture = 0.0
     while True:
-        # Stock charts (and index charts) — only during market hours
-        if nyse_is_open():
+        state = market_session_state()
+        # Full capture rotation during regular hours and 1h post-close cool-down
+        if state == "open" or state == "cooldown":
             try:
                 watchlist = supabase_get_watchlist()
                 print(f"[chart_watcher] 📋 watchlist: {watchlist}", flush=True)

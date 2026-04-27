@@ -58,30 +58,24 @@ CLOSED_POLL_INTERVAL = 15
 _wake_event = threading.Event()
 
 NYSE_TZ = ZoneInfo("America/New_York")
-# Regular session only (Mon–Fri 09:30–16:00 ET). Does not model exchange holidays.
-NYSE_OPEN_MIN = 9 * 60 + 30
-NYSE_CLOSE_MIN = 16 * 60
 
 
-def nyse_regular_session_open(now_utc: datetime | None = None) -> bool:
-    """True during NYSE regular hours in America/New_York (DST-aware)."""
-    if now_utc is None:
-        now_utc = datetime.now(timezone.utc)
-    elif now_utc.tzinfo is None:
-        now_utc = now_utc.replace(tzinfo=timezone.utc)
-    et = now_utc.astimezone(NYSE_TZ)
-    if et.weekday() >= 5:
-        return False
-    mins = et.hour * 60 + et.minute
-    return NYSE_OPEN_MIN <= mins < NYSE_CLOSE_MIN
-
-
-def _ignore_market_hours() -> bool:
-    return (os.environ.get("UPDATER_IGNORE_MARKET_HOURS") or "").strip() in (
-        "1",
-        "true",
-        "yes",
-    )
+def market_session_state() -> str:
+    """
+    Returns:
+      'open'     — regular session 9:30-16:00 ET
+      'cooldown' — 16:00-17:00 ET (1hr after close)
+      'closed'   — everything else
+    """
+    now = datetime.now(NYSE_TZ)
+    if now.weekday() >= 5:
+        return "closed"
+    mins = now.hour * 60 + now.minute
+    if 9 * 60 + 30 <= mins < 16 * 60:
+        return "open"
+    if 16 * 60 <= mins < 17 * 60:
+        return "cooldown"
+    return "closed"
 
 
 def _sleep_closed_poll() -> None:
@@ -509,11 +503,12 @@ def breadth_needs_fetch() -> bool:
     1. Market is open (NYSE regular hours), OR
     2. Breadth has never been populated (advancing is null)
     """
+    state = market_session_state()
     print(
-        f"[updater] 🔍 breadth_needs_fetch: market_open={nyse_regular_session_open()}",
+        f"[updater] 🔍 breadth_needs_fetch: session={state}",
         flush=True,
     )
-    if nyse_regular_session_open():
+    if state in ("open", "cooldown"):
         return True
 
     try:
@@ -631,13 +626,10 @@ def main() -> None:
     print("[updater] 🚀 starting stock data updater")
     print(f"[updater] checking for new/stale stocks every {FETCH_INTERVAL}s")
     start_wake_server_if_configured()
-    if _ignore_market_hours():
-        print("[updater] ⚙️ UPDATER_IGNORE_MARKET_HOURS set — full refresh any time")
-    else:
-        print(
-            "[updater] ⏸️ NYSE closed: only new watchlist rows (`updated_at` null) are scraped; "
-            "regular session (Mon–Fri 09:30–16:00 ET): full stale refresh. Holidays not modeled."
-        )
+    print(
+        "[updater] session: open/cooldown (Mon–Fri 09:30–17:00 ET) = full stale rotation; "
+        "otherwise only new rows (`updated_at` null). Wake HTTP still forces immediate check."
+    )
 
     while True:
         now = time.time()
@@ -649,12 +641,12 @@ def main() -> None:
                 print("[updater] 🌙 NYSE closed — skipping breadth", flush=True)
                 last_breadth_fetch = now
 
-        ignore_hours = _ignore_market_hours()
-        market_open = ignore_hours or nyse_regular_session_open()
-
-        if market_open:
+        state = market_session_state()
+        if state == "open" or state == "cooldown":
+            # Full rotation - fetch next stale symbol
             symbol = get_next_symbol(pending_only=False)
         else:
+            # Only new symbols after hours
             symbol = get_next_symbol(pending_only=True)
             if not symbol:
                 et = datetime.now(timezone.utc).astimezone(NYSE_TZ)

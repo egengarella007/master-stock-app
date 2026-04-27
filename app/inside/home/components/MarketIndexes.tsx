@@ -183,10 +183,10 @@ export function MarketIndexes() {
 
   const STORAGE_URL = mounted ? (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "") : "";
 
-  const charts: Array<{ file: string; alt: string }> = [
-    { file: "nasdaq", alt: "NASDAQ index chart" },
-    { file: "sp500", alt: "S&P 500 index chart" },
-    { file: "dow", alt: "Dow Jones index chart" },
+  const INDEX_CHARTS = [
+    { name: "nasdaq", label: "NASDAQ" },
+    { name: "sp500", label: "S&P 500" },
+    { name: "dow", label: "DOW" },
   ];
 
   const adv = breadth?.advancing;
@@ -283,15 +283,15 @@ export function MarketIndexes() {
               WebkitOverflowScrolling: "touch",
             }}
           >
-            {charts.map(({ file, alt }) => {
+            {INDEX_CHARTS.map(({ name, label }) => {
               const base = STORAGE_URL
-                ? `${STORAGE_URL}/storage/v1/object/public/charts/index/${file}.png`
+                ? `${STORAGE_URL}/storage/v1/object/public/charts/index/${name}.png`
                 : "";
               const src = base ? `${base}?t=${cacheBust}` : "";
 
               return (
                 <div
-                  key={file}
+                  key={name}
                   style={{
                     flex: wide ? undefined : "0 0 auto",
                     width: wide ? undefined : "min(280px, 85vw)",
@@ -302,6 +302,18 @@ export function MarketIndexes() {
                     padding: 10,
                   }}
                 >
+                  <div
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      letterSpacing: "0.06em",
+                      color: "#94a3b8",
+                      textTransform: "uppercase",
+                      marginBottom: 8,
+                    }}
+                  >
+                    {label}
+                  </div>
                   <div
                     style={{
                       position: "relative",
@@ -320,7 +332,7 @@ export function MarketIndexes() {
                     ) : (
                       <img
                         src={src}
-                        alt={alt}
+                        alt={`${label} index chart`}
                         style={{
                           width: "100%",
                           height: "100%",
